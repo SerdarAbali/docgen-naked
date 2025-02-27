@@ -1,0 +1,21 @@
+.segment-container {
+  max-width: 800px;
+  margin: 2rem auto;
+}
+
+.segment-item {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.segment-text {
+  margin-bottom: 0.5rem;
+}
+
+.segment-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+} 
