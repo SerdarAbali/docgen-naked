@@ -835,17 +835,17 @@ app.post('/api/docs/:jobId/video-screenshot', async (req, res) => {
   }
 });
 
-// Get document content by job_id
 app.get('/api/docs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
     
-    const result = await pool.query(
+    // First, get document title and content
+    const docResult = await pool.query(
       'SELECT title, content FROM documentation WHERE job_id = $1',
       [jobId]
     );
 
-    if (result.rows.length === 0) {
+    if (docResult.rows.length === 0) {
       res.status(404).json({ error: 'Document not found' });
       return;
     }
@@ -854,15 +854,42 @@ app.get('/api/docs/:jobId', async (req, res) => {
     const docPath = path.join(DOCS_DIR, 'generated', jobId, 'index.md');
     const content = await fs.readFile(docPath, 'utf8');
 
+    // Get all segments/steps
+    const segmentsResult = await pool.query(
+      `SELECT id, segment_index, text, original_start_time, original_end_time, screenshot_path, "order" 
+       FROM transcription_segments 
+       WHERE job_id = $1 
+       ORDER BY COALESCE("order", segment_index)`,
+      [jobId]
+    );
+
+    // Format the steps data
+    const steps = segmentsResult.rows.map(segment => ({
+      id: segment.id,
+      timestamp: formatTime(Number(segment.original_start_time)),
+      text: segment.text,
+      imageUrl: segment.screenshot_path || null,
+      order: segment.order || segment.segment_index
+    }));
+
+    // Return both the content and structured steps
     res.json({
-      title: result.rows[0].title,
-      content: content
+      title: docResult.rows[0].title,
+      content: content, // Keep original content for backward compatibility
+      steps: steps
     });
   } catch (error) {
     console.error('Error fetching document:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to fetch document' });
   }
 });
+
+// Make sure you have a formatTime function (you likely already do)
+function formatTime(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
 
 // Update document content
 app.put('/api/docs/:jobId', async (req, res) => {
@@ -1180,6 +1207,63 @@ app.post('/api/docs/:jobId/update-segment-screenshot', async (req, res) => {
     });
   }
 });
+
+// Updated Endpoint: Reorder steps
+app.post('/api/docs/:docId/steps/reorder', async (req, res) => {
+  try {
+    const { docId } = req.params;
+    const { steps } = req.body;
+    
+    console.log('Received reorder request for doc:', docId);
+    console.log('Steps order:', steps);
+    
+    // Start a transaction
+    await pool.query('BEGIN');
+    
+    // Update each step's order
+    for (const step of steps) {
+      await pool.query(
+        'UPDATE transcription_segments SET "order" = $1 WHERE id = $2 AND job_id = $3',
+        [step.order, step.id, docId]
+      );
+    }
+    
+    // Commit transaction
+    await pool.query('COMMIT');
+    
+    res.json({ success: true, message: 'Steps reordered successfully' });
+  } catch (error) {
+    // Rollback on error
+    await pool.query('ROLLBACK');
+    console.error('Error reordering steps:', error);
+    res.status(500).json({ error: 'Failed to reorder steps', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// Updated Endpoint: Update step content
+app.put('/api/docs/:docId/steps/:stepId', async (req, res) => {
+  try {
+    const { docId, stepId } = req.params;
+    const { text } = req.body;
+    
+    console.log(`Updating step ${stepId} for doc ${docId}`);
+    
+    const result = await pool.query(
+      'UPDATE transcription_segments SET text = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND job_id = $3 RETURNING *',
+      [text, stepId, docId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Step not found' });
+    }
+    
+    res.json({ success: true, step: result.rows[0], message: 'Step updated successfully' });
+  } catch (error) {
+    console.error('Error updating step:', error);
+    res.status(500).json({ error: 'Failed to update step', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
 // Start server
 const PORT = Number(process.env.PORT) || 3001;
 
