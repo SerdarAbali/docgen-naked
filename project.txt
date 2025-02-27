@@ -1,0 +1,120 @@
+# Documentation: DocGen System
+
+## Overview
+DocGen is a **Documentation Generation System** that processes video content to automatically generate structured documentation. It uses AI/ML for transcription and provides an interface for reviewing and editing the generated content.
+
+---
+
+## Folder Structure and Key Files
+
+### Root Directory
+```
+docgen/
+├── client/               # Frontend application
+├── server/               # Backend application
+└── src/                  # Shared components and pages
+```
+
+### Client Directory
+```
+client/
+├── public/               # Static assets
+│   └── index.html        # Main HTML entry point
+├── src/                  # Application source code
+│   ├── components/       # Reusable UI components
+│   ├── pages/            # Application pages
+│   ├── App.tsx           # Main application component
+│   └── main.tsx          # Application entry point
+├── package.json          # Frontend dependencies and scripts
+├── tsconfig.json         # TypeScript configuration
+└── vite.config.ts        # Vite build configuration
+```
+
+### Server Directory
+```
+server/
+├── dist/                 # Compiled TypeScript files
+├── scripts/              # Python scripts for AI/ML
+│   └── transcribe.py     # Whisper transcription script
+├── src/                  # Backend source code
+│   └── index.ts          # Main server entry point
+├── package.json          # Backend dependencies and scripts
+└── tsconfig.json         # TypeScript configuration
+```
+
+### Shared Source Directory
+```
+src/
+├── components/           # Shared UI components
+├── pages/                # Shared application pages
+├── css/                  # Global styles
+└── plugins/              # Docusaurus plugins
+```
+
+---
+
+## Key Files and Their Purpose
+
+1. **Client Files**:
+   - `client/src/App.tsx`: Main application component with routing
+   - `client/src/components/VideoUpload/index.tsx`: Video upload interface
+   - `client/src/components/SegmentReview/index.tsx`: Segment review interface
+   - `client/src/pages/DocumentationViewer.tsx`: Documentation viewer
+
+2. **Server Files**:
+   - `server/src/index.ts`: Main server entry point with API routes
+   - `server/scripts/transcribe.py`: Whisper transcription script
+   - `server/src/processVideo.ts`: Video processing logic
+
+3. **Shared Files**:
+   - `src/components/DocEditor/StepEditor.tsx`: Documentation editor component
+   - `src/components/DocumentManager/index.tsx`: Document management interface
+
+---
+
+## Key Features
+1. **Video Processing**:
+   - Upload and process video files
+   - Extract audio and generate screenshots
+   - Transcribe audio using Whisper AI
+
+2. **Documentation Generation**:
+   - Create markdown documentation from video content
+   - Allow editing and refinement of generated content
+   - Manage multiple documentation projects
+
+3. **User Interface**:
+   - Video upload and processing interface
+   - Segment review and editing tools
+   - Documentation management system
+
+---
+
+## Database Schema
+- `documents`: Stores generated documentation
+- `videos`: Stores video metadata
+- `segments`: Stores transcription segments
+
+## Environment Variables
+- `DATABASE_URL`: PostgreSQL connection string
+- `WHISPER_MODEL`: Whisper model to use (e.g., 'base')
+- `UPLOAD_DIR`: Directory for uploaded files
+
+## Development Workflow
+1. Start PostgreSQL database
+2. Run server: `cd server && npm run dev`
+3. Run client: `cd client && npm run dev`
+4. Access application at `http://localhost:3000`
+
+## Testing
+- Unit tests: `npm test` in both client and server
+- Integration tests: Run API tests with Postman
+
+## Deployment
+1. Build client: `cd client && npm run build`
+2. Start server: `cd server && npm start`
+3. Configure reverse proxy (e.g., Nginx)
+
+## Troubleshooting
+- Missing dependencies: Run `npm install` in both client and server
+- Whisper errors: Ensure Python and FFmpeg are installed
