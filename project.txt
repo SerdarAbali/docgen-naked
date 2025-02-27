@@ -1,120 +1,200 @@
-# Documentation: DocGen System
+Documentation: DocGen System
+Overview
+DocGen is a Documentation Generation System that processes video content to automatically generate structured documentation. It uses AI/ML for transcription and provides an interface for reviewing and editing the generated content. The system creates step-by-step documentation with screenshots and timestamps, with full support for reordering steps and inline content editing.
 
-## Overview
-DocGen is a **Documentation Generation System** that processes video content to automatically generate structured documentation. It uses AI/ML for transcription and provides an interface for reviewing and editing the generated content.
-
----
-
-## Folder Structure and Key Files
-
-### Root Directory
-```
-docgen/
+Folder Structure and Key Files
+Root Directory
+Copydocgen/
 ├── client/               # Frontend application
 ├── server/               # Backend application
 └── src/                  # Shared components and pages
-```
-
-### Client Directory
-```
-client/
+Client Directory
+Copyclient/
 ├── public/               # Static assets
 │   └── index.html        # Main HTML entry point
 ├── src/                  # Application source code
 │   ├── components/       # Reusable UI components
 │   ├── pages/            # Application pages
+│   │   └── DocumentationViewer.tsx  # Interactive documentation viewer
 │   ├── App.tsx           # Main application component
 │   └── main.tsx          # Application entry point
 ├── package.json          # Frontend dependencies and scripts
 ├── tsconfig.json         # TypeScript configuration
 └── vite.config.ts        # Vite build configuration
-```
-
-### Server Directory
-```
-server/
+Server Directory
+Copyserver/
 ├── dist/                 # Compiled TypeScript files
 ├── scripts/              # Python scripts for AI/ML
 │   └── transcribe.py     # Whisper transcription script
 ├── src/                  # Backend source code
-│   └── index.ts          # Main server entry point
+│   └── index.ts          # Main server entry point with API routes
 ├── package.json          # Backend dependencies and scripts
+├── whisper-env/          # Python virtual environment for Whisper
 └── tsconfig.json         # TypeScript configuration
-```
-
-### Shared Source Directory
-```
-src/
+Shared Source Directory
+Copysrc/
 ├── components/           # Shared UI components
 ├── pages/                # Shared application pages
 ├── css/                  # Global styles
 └── plugins/              # Docusaurus plugins
-```
 
----
+Key Files and Their Purpose
 
-## Key Files and Their Purpose
+Client Files:
 
-1. **Client Files**:
-   - `client/src/App.tsx`: Main application component with routing
-   - `client/src/components/VideoUpload/index.tsx`: Video upload interface
-   - `client/src/components/SegmentReview/index.tsx`: Segment review interface
-   - `client/src/pages/DocumentationViewer.tsx`: Documentation viewer
+client/src/App.tsx: Main application component with routing
+client/src/components/VideoUpload/index.tsx: Video upload interface
+client/src/components/SegmentReview/index.tsx: Segment review interface
+client/src/pages/DocumentationViewer.tsx: Interactive documentation viewer with drag-and-drop step reordering and inline editing
 
-2. **Server Files**:
-   - `server/src/index.ts`: Main server entry point with API routes
-   - `server/scripts/transcribe.py`: Whisper transcription script
-   - `server/src/processVideo.ts`: Video processing logic
 
-3. **Shared Files**:
-   - `src/components/DocEditor/StepEditor.tsx`: Documentation editor component
-   - `src/components/DocumentManager/index.tsx`: Document management interface
+Server Files:
 
----
+server/src/index.ts: Main server entry point with API routes
+server/scripts/transcribe.py: Whisper transcription script
+server/src/processVideo.ts: Video processing logic
+server/src/routes/steps.ts: API endpoints for step manipulation (reordering, editing)
 
-## Key Features
-1. **Video Processing**:
-   - Upload and process video files
-   - Extract audio and generate screenshots
-   - Transcribe audio using Whisper AI
 
-2. **Documentation Generation**:
-   - Create markdown documentation from video content
-   - Allow editing and refinement of generated content
-   - Manage multiple documentation projects
+Shared Files:
 
-3. **User Interface**:
-   - Video upload and processing interface
-   - Segment review and editing tools
-   - Documentation management system
+src/components/DocEditor/StepEditor.tsx: Documentation editor component
+src/components/DocumentManager/index.tsx: Document management interface
 
----
 
-## Database Schema
-- `documents`: Stores generated documentation
-- `videos`: Stores video metadata
-- `segments`: Stores transcription segments
 
-## Environment Variables
-- `DATABASE_URL`: PostgreSQL connection string
-- `WHISPER_MODEL`: Whisper model to use (e.g., 'base')
-- `UPLOAD_DIR`: Directory for uploaded files
 
-## Development Workflow
-1. Start PostgreSQL database
-2. Run server: `cd server && npm run dev`
-3. Run client: `cd client && npm run dev`
-4. Access application at `http://localhost:3000`
+Key Features
 
-## Testing
-- Unit tests: `npm test` in both client and server
-- Integration tests: Run API tests with Postman
+Video Processing:
 
-## Deployment
-1. Build client: `cd client && npm run build`
-2. Start server: `cd server && npm start`
-3. Configure reverse proxy (e.g., Nginx)
+Upload and process video files
+Extract audio and generate screenshots at key points
+Transcribe audio using Whisper AI
+Segment transcription into logical steps
 
-## Troubleshooting
-- Missing dependencies: Run `npm install` in both client and server
-- Whisper errors: Ensure Python and FFmpeg are installed
+
+Documentation Generation:
+
+Create structured documentation from video content with timestamps
+Associate screenshots with specific steps
+Generate markdown output suitable for publishing
+Create RESTful API endpoints for accessing documents
+
+
+Documentation Management:
+
+Drag-and-drop reordering of documentation steps
+Inline editing of step content
+Visual navigation between steps
+Preview of screenshots associated with each step
+Maintain structured relationships between documents and steps
+
+
+User Interface:
+
+Video upload and processing interface
+Segment review and editing tools
+Interactive documentation viewer
+Step-by-step navigation controls
+
+
+
+
+Database Schema
+Documentation Table
+sqlCopyCREATE TABLE documentation (
+  id UUID PRIMARY KEY,
+  job_id UUID UNIQUE,
+  title VARCHAR(255) NOT NULL,
+  content TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+Processing Jobs Table
+sqlCopyCREATE TABLE processing_jobs (
+  id UUID PRIMARY KEY,
+  video_path VARCHAR(255) NOT NULL,
+  status VARCHAR(50) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+Transcription Segments (Steps) Table
+sqlCopyCREATE TABLE transcription_segments (
+  id UUID PRIMARY KEY,
+  job_id UUID REFERENCES processing_jobs(id) ON DELETE CASCADE,
+  segment_index INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  original_start_time NUMERIC(10,3) NOT NULL,
+  original_end_time NUMERIC(10,3) NOT NULL,
+  screenshot_path VARCHAR(255),
+  needs_review BOOLEAN DEFAULT true,
+  reviewed_at TIMESTAMP,
+  "order" INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+API Endpoints
+Document Endpoints
+
+GET /api/docs/:jobId - Retrieves a document with structured steps array
+POST /api/docs - Creates a new document
+
+Step Management Endpoints
+
+GET /api/docs/:jobId/steps - Retrieves all steps for a document
+PUT /api/docs/:docId/steps/:stepId - Updates a step's content
+POST /api/docs/:docId/steps/reorder - Reorders steps based on provided order array
+
+Environment Variables
+
+DATABASE_URL: PostgreSQL connection string
+WHISPER_MODEL: Whisper model to use (e.g., 'base')
+UPLOAD_DIR: Directory for uploaded files
+
+Development Workflow
+
+Start PostgreSQL database
+psql -U docuser -d docgen -h localhost -p 5432
+
+Activate the Python virtual environment for Whisper:
+~source server/whisper-env/bin/activate  # On Linux/macOS
+
+
+Run server:
+bashCopycd server && npm run dev
+
+Run client:
+bashCopycd client && npm run dev
+
+Access application at http://localhost:3000
+
+Required Dependencies
+Frontend
+
+React with TypeScript
+React Router for navigation
+React-DnD for drag-and-drop functionality
+Vite for build and development
+
+Backend
+
+Node.js with Express
+PostgreSQL for database
+Python with OpenAI Whisper for transcription
+FFmpeg for video processing
+
+Troubleshooting
+
+Missing dependencies: Run npm install in both client and server directories
+Whisper errors: Ensure Python virtual environment is activated and FFmpeg is installed
+Database connection issues: Verify PostgreSQL is running and connection string is correct
+React-DnD issues: Check browser console for specific error messages
+
+Future Enhancements
+
+Add ability to create new steps
+Implement step deletion functionality
+Add image replacement capabilities
+Support for exporting documentation in various formats (PDF, HTML, etc.)
+Enhanced text formatting options in the step editor
