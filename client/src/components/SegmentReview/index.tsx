@@ -1,6 +1,6 @@
+// client/src/components/SegmentReview/index.tsx
 import React, { useState, useEffect } from 'react';
-import { Check, X, Play, Merge, Loader } from 'lucide-react';
-import './SegmentReview.css';
+import { Check, X, Play, Merge, Loader, Clock, Edit } from 'lucide-react';
 
 interface Segment {
   id: string;
@@ -23,6 +23,7 @@ const SegmentReview: React.FC<SegmentReviewProps> = ({ jobId, onComplete }) => {
   const [selectedSegments, setSelectedSegments] = useState(new Set<number>());
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState('Processing...');
+  const [currentSegment, setCurrentSegment] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -155,10 +156,10 @@ const SegmentReview: React.FC<SegmentReviewProps> = ({ jobId, onComplete }) => {
             text: seg.text,
             start_time: seg.original_start_time,
             end_time: seg.original_end_time,
-            screenshot_path: seg.screenshot_path  // Make sure to include this!
+            screenshot_path: seg.screenshot_path
           })),
         }),
-        credentials: 'include'  // Include credentials
+        credentials: 'include'
       });
 
       if (!response.ok) {
@@ -178,7 +179,8 @@ const SegmentReview: React.FC<SegmentReviewProps> = ({ jobId, onComplete }) => {
     }
   };
 
-  const previewSegment = (segment: Segment) => {
+  const previewSegment = (segment: Segment, index: number) => {
+    setCurrentSegment(index);
     const video = document.getElementById('review-video') as HTMLVideoElement;
     if (video) {
       video.currentTime = segment.original_start_time;
@@ -188,109 +190,150 @@ const SegmentReview: React.FC<SegmentReviewProps> = ({ jobId, onComplete }) => {
 
   if (loading) {
     return (
-      <div className="text-center p-4">
-        <Loader className="animate-spin" />
-        <p>Loading...</p>
+      <div className="flex flex-col items-center justify-center p-8 space-y-4">
+        <Loader className="w-10 h-10 text-primary animate-spin" />
+        <p className="text-gray-600 font-medium">Loading segments...</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="alert alert--danger p-4 rounded-lg shadow-md">
-        <p>{error}</p>
+      <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md">
+        <div className="flex items-center">
+          <X className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" />
+          <p className="text-red-700">{error}</p>
+        </div>
       </div>
     );
   }
 
   if (isProcessing) {
     return (
-      <div className="text-center p-4">
-        <Loader className="animate-spin" />
-        <p>{processingMessage}</p>
+      <div className="flex flex-col items-center justify-center p-8 space-y-4">
+        <Loader className="w-10 h-10 text-primary animate-spin" />
+        <p className="text-gray-700 font-medium">{processingMessage}</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-lg shadow-md p-6 bg-[var(--ifm-background-surface-color)]">
-        <h2 className="text-2xl font-bold mb-4">Review Segments</h2>
-        <p className="text-[var(--ifm-font-color-base)] opacity-70 mb-6">
+    <div className="bg-white rounded-lg shadow-card border border-gray-100">
+      {/* Header Section */}
+      <div className="border-b border-gray-100 p-6">
+        <h2 className="text-2xl font-bold text-gray-800">Review Segments</h2>
+        <p className="text-gray-600 mt-1">
           Review and edit the segments before generating documentation.
         </p>
+      </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <video 
-              id="review-video"
-              src={videoUrl} 
-              controls 
-              className="w-full mb-4 rounded-lg"
-            />
+      <div className="p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Video Preview Section */}
+          <div className="space-y-4">
+            <div className="relative rounded-lg overflow-hidden bg-gray-900 shadow-md">
+              <video 
+                id="review-video"
+                src={videoUrl} 
+                controls 
+                className="w-full h-auto"
+              />
+            </div>
             
             <button 
               onClick={handleMergeSegments}
               disabled={selectedSegments.size < 2}
-              className="button button--primary flex items-center gap-2"
+              className={`
+                flex items-center gap-2 px-4 py-2 rounded-md font-medium
+                ${selectedSegments.size < 2 
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                  : 'bg-primary text-white hover:bg-primary-dark'}
+                transition-colors
+              `}
             >
               <Merge className="w-4 h-4" />
-              Merge Selected
+              Merge Selected ({selectedSegments.size})
             </button>
           </div>
 
-          <div className="space-y-4">
+          {/* Segments List */}
+          <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
             {segments.map((segment, index) => (
               <div 
                 key={index}
                 className={`
-                  rounded-lg shadow-md p-4 bg-[var(--ifm-background-surface-color)]
-                  transition-all duration-200
-                  ${selectedSegments.has(index) ? 'ring-2 ring-[var(--ifm-color-primary)]' : 'ring-1 ring-[var(--ifm-color-primary-light)]'}
+                  rounded-lg border transition-all duration-200
+                  ${selectedSegments.has(index) 
+                    ? 'border-primary bg-primary/5' 
+                    : 'border-gray-200 bg-white hover:border-gray-300'}
+                  ${currentSegment === index ? 'ring-2 ring-primary ring-opacity-50' : ''}
+                  shadow-sm
                 `}
               >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-sm font-mono bg-[var(--ifm-background-color)] px-2 py-1 rounded">
-                    {formatTime(segment.original_start_time)}
-                  </span>
-                  <div className="flex gap-2">
-                    <button
-                      className="button button--secondary button--sm"
-                      onClick={() => handlePlaySegment(segment)}
-                    >
-                      <Play className="w-4 h-4" />
-                    </button>
-                    <button
-                      className="button button--secondary button--sm"
-                      onClick={() => handleSegmentClick(index)}
-                    >
-                      {selectedSegments.has(index) ? (
-                        <X className="w-4 h-4" />
-                      ) : (
-                        <Check className="w-4 h-4" />
-                      )}
-                    </button>
-                    <button
-                      className="button button--secondary"
-                      onClick={() => previewSegment(segment)}
-                    >
-                      <Play size={16} /> Preview
-                    </button>
+                <div className="p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex items-center">
+                      <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-sm font-mono">
+                        {formatTime(segment.original_start_time)}
+                      </span>
+                      
+                      {/* Time Duration Badge */}
+                      <span className="ml-2 text-xs text-gray-500 flex items-center">
+                        <Clock className="w-3 h-3 mr-1" />
+                        {Math.round(segment.original_end_time - segment.original_start_time)}s
+                      </span>
+                    </div>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        className="p-1.5 text-gray-500 hover:text-primary hover:bg-gray-100 rounded-md transition-colors"
+                        onClick={() => previewSegment(segment, index)}
+                        title="Preview segment"
+                      >
+                        <Play className="w-4 h-4" />
+                      </button>
+                      
+                      <button
+                        className={`
+                          p-1.5 rounded-md transition-colors
+                          ${selectedSegments.has(index) 
+                            ? 'bg-primary/10 text-primary' 
+                            : 'text-gray-500 hover:text-primary hover:bg-gray-100'}
+                        `}
+                        onClick={() => handleSegmentClick(index)}
+                        title={selectedSegments.has(index) ? "Deselect" : "Select"}
+                      >
+                        {selectedSegments.has(index) ? (
+                          <Check className="w-4 h-4" />
+                        ) : (
+                          <Edit className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
+                  
+                  <p className="text-gray-700 text-sm leading-relaxed">{segment.text}</p>
                 </div>
-                <p className="text-[var(--ifm-font-color-base)]">{segment.text}</p>
               </div>
             ))}
+            
+            {segments.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-gray-500">No segments found</p>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end">
+        {/* Action buttons */}
+        <div className="mt-8 flex justify-end">
           <button 
             onClick={handleFinalize}
-            className="button button--primary button--lg flex items-center gap-2"
+            className="btn-primary flex items-center gap-2 py-3 px-6"
             disabled={isProcessing}
           >
-            {isProcessing ? 'Processing...' : 'Finalize and Generate Documentation'}
+            <Check className="w-5 h-5" />
+            Finalize and Generate Documentation
           </button>
         </div>
       </div>

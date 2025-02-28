@@ -1,3 +1,4 @@
+// client/src/pages/DocumentationViewer.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
@@ -5,8 +6,8 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import { CKEditor } from '@ckeditor/ckeditor5-react';
 import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
 import {
-  Edit, Save, X, Trash2, Plus, Upload, FileText, FileCode, FilePdf, MoreVertical,
-  Download, Code, File
+  Edit, Save, X, Trash2, Plus, Upload, FileText, File, MoreVertical,
+  Download, Code, Clock, CheckCircle, XCircle, Image, ArrowUp, ArrowDown
 } from 'lucide-react';
 import ImageAnnotator from '../components/ImageAnnotator';
 import { v4 as uuidv4 } from 'uuid';
@@ -70,48 +71,60 @@ const StepItem: React.FC<StepItemProps> = ({
   return (
     <div
       ref={editMode ? ref : null}
-      className={`step-item ${isDragging ? 'dragging' : ''}`}
-      style={{
-        opacity: isDragging ? 0.5 : 1,
-        border: '1px solid #e0e0e0',
-        borderRadius: '8px',
-        padding: '16px',
-        marginBottom: '16px',
-        backgroundColor: 'white',
-        position: 'relative'
-      }}
+      className={`
+        bg-white border rounded-lg mb-4 transition-all duration-200 shadow-sm
+        ${isDragging ? 'opacity-50' : 'opacity-100'}
+        ${editMode ? 'border-gray-300' : 'border-gray-200'}
+      `}
     >
-      {editMode && !isEditing && (
-        <div style={{ position: 'absolute', right: '8px', top: '8px', display: 'flex', gap: '8px' }}>
-          <button onClick={onEdit} className="button button--secondary button--sm" style={{ padding: '4px 8px' }}>
-            <Edit size={16} />
-          </button>
-          <button onClick={onDelete} className="button button--danger button--sm" style={{ padding: '4px 8px' }}>
-            <Trash2 size={16} />
-          </button>
-          <div style={{ cursor: 'grab', padding: '4px 8px', color: '#888' }}>⋮⋮</div>
+      <div className="p-4 relative">
+        {editMode && !isEditing && (
+          <div className="absolute right-2 top-2 flex items-center gap-1">
+            <button 
+              onClick={onEdit} 
+              className="p-1.5 text-gray-500 hover:text-primary hover:bg-gray-100 rounded-md transition-colors"
+              title="Edit step"
+            >
+              <Edit size={16} />
+            </button>
+            <button 
+              onClick={onDelete} 
+              className="p-1.5 text-gray-500 hover:text-red-500 hover:bg-gray-100 rounded-md transition-colors"
+              title="Delete step"
+            >
+              <Trash2 size={16} />
+            </button>
+            {editMode && (
+              <div className="p-1.5 text-gray-400 cursor-grab">
+                <MoreVertical size={16} />
+              </div>
+            )}
+          </div>
+        )}
+        
+        <div className="mb-2 flex items-center">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-primary/10 text-primary">
+            Step {index + 1}
+          </span>
         </div>
-      )}
-      <div style={{ marginBottom: '8px' }}>
-        <span style={{ backgroundColor: '#f0f0f0', padding: '4px 8px', borderRadius: '4px', fontFamily: 'monospace' }}>
-          {step.timestamp}
-        </span>
+        
+        <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: step.text }} />
+        
+        {step.imageUrl && (
+          <div className="mt-4">
+            <img
+              src={step.imageUrl}
+              alt={`Screenshot at ${step.timestamp}`}
+              className="max-w-full rounded-md border border-gray-200 hover:border-primary transition-colors cursor-pointer"
+              onClick={() => onImageClick(step.imageUrl!, `Screenshot at ${step.timestamp}`)}
+              onError={(e) => {
+                console.error('Image failed to load:', step.imageUrl);
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          </div>
+        )}
       </div>
-      <div dangerouslySetInnerHTML={{ __html: step.text }} />
-      {step.imageUrl && (
-        <div style={{ marginTop: '16px' }}>
-          <img
-            src={step.imageUrl}
-            alt={`Screenshot at ${step.timestamp}`}
-            style={{ maxWidth: '300px', maxHeight: '200px', borderRadius: '4px', cursor: 'pointer', objectFit: 'contain', border: '1px solid #e0e0e0' }}
-            onClick={() => onImageClick(step.imageUrl!, `Screenshot at ${step.timestamp}`)}
-            onError={(e) => {
-              console.error('Image failed to load:', step.imageUrl);
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-        </div>
-      )}
     </div>
   );
 };
@@ -515,6 +528,15 @@ const handleAnnotationSave = async (dataUrl: string) => {
     if (!id) return;
     try {
       setExportLoading(true);
+      
+      if (format === 'pdf') {
+        // For PDF, create a printable HTML version instead
+        alert("PDF export is currently unavailable. You can use your browser's print feature to save as PDF instead.");
+        setExportLoading(false);
+        setShowExportMenu(false);
+        return;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/api/docs/${id}/export?format=${format}`);
       if (!response.ok) {
         if (response.status === 501) {
@@ -561,31 +583,34 @@ const handleAnnotationSave = async (dataUrl: string) => {
     setEditMode(false);
   };
 
-  const formatTime = (seconds: number): string => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
-
   if (isLoading) {
     return (
-      <div className="container margin-vert--lg">
-        <h1>DocGen Application</h1>
-        <h2>Documentation Viewer</h2>
-        <p>Loading documentation...</p>
+      <div className="max-w-6xl mx-auto px-4 py-10">
+        <div className="text-center space-y-4">
+          <h1 className="text-2xl font-bold text-gray-800">DocGen</h1>
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary"></div>
+          </div>
+          <p className="text-gray-600">Loading documentation...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="container margin-vert--lg">
-        <h1>DocGen Application</h1>
-        <h2>Documentation Viewer</h2>
-        <div style={{ color: 'red', padding: '10px', backgroundColor: '#ffeeee' }}>
-          <p>Error: {error}</p>
-          <button onClick={() => window.location.reload()} className="button button--primary margin-top--md">
-            Reload Page
+      <div className="max-w-6xl mx-auto px-4 py-10">
+        <h1 className="text-2xl font-bold text-gray-800 mb-6">DocGen</h1>
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md">
+          <div className="flex items-center">
+            <XCircle className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" />
+            <p className="text-red-700">{error}</p>
+          </div>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-4 bg-red-100 hover:bg-red-200 text-red-800 px-4 py-2 rounded-md transition-colors inline-flex items-center"
+          >
+            <div className="mr-1">Reload Page</div>
           </button>
         </div>
       </div>
@@ -594,144 +619,226 @@ const handleAnnotationSave = async (dataUrl: string) => {
 
   if (!doc) {
     return (
-      <div className="container margin-vert--lg">
-        <h1>DocGen Application</h1>
-        <h2>Documentation Viewer</h2>
-        <p>No documentation found for this ID.</p>
+      <div className="max-w-6xl mx-auto px-4 py-10">
+        <h1 className="text-2xl font-bold text-gray-800 mb-4">DocGen</h1>
+        <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-md">
+          <p className="text-yellow-700">No documentation found for this ID.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container margin-vert--lg">
-      <h1>DocGen Application</h1>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h2>{doc.title}</h2>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {!editMode ? (
-            <>
-              <button onClick={() => setEditMode(true)} className="button button--primary">
-                <Edit size={16} style={{ marginRight: '4px' }} />
-                Edit
-              </button>
-              <div style={{ position: 'relative' }}>
-                <button onClick={() => setShowExportMenu(!showExportMenu)} className="button button--secondary" disabled={exportLoading}>
-                  {exportLoading ? 'Exporting...' : 'Export'}
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-gray-800 mb-1">DocGen</h1>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
+          <h2 className="text-xl font-medium text-gray-700">{doc.title}</h2>
+          <div className="flex items-center gap-2">
+            {!editMode ? (
+              <>
+                <button 
+                  onClick={() => setEditMode(true)} 
+                  className="btn-primary flex items-center gap-2"
+                >
+                  <Edit size={16} />
+                  Edit
                 </button>
-                {showExportMenu && (
-                  <div style={{ position: 'absolute', right: 0, top: '100%', backgroundColor: 'white', border: '1px solid #e0e0e0', borderRadius: '4px', padding: '8px 0', zIndex: 10, boxShadow: '0 2px 10px rgba(0,0,0,0.1)', marginTop: '4px' }}>
-                    <button onClick={() => handleExport('markdown')} style={{ display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left', padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer' }}>
-                      <File size={16} style={{ marginRight: '8px' }} />
-                      Markdown
-                    </button>
-                    <button onClick={() => handleExport('html')} style={{ display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left', padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer' }}>
-                      <Code size={16} style={{ marginRight: '8px' }} />
-                      HTML
-                    </button>
-                    <button onClick={() => handleExport('pdf')} style={{ display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left', padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer' }}>
-                      <Download size={16} style={{ marginRight: '8px' }} />
-                      PDF
-                    </button>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <button onClick={addNewStep} className="button button--primary">
-                <Plus size={16} style={{ marginRight: '4px' }} />
-                Add Step
-              </button>
-              <button onClick={saveStepOrder} className="button button--success" disabled={saveLoading || editingStep !== null}>
-                <Save size={16} style={{ marginRight: '4px' }} />
-                {saveLoading ? 'Saving...' : 'Save Order'}
-              </button>
-              <button onClick={exitEditMode} className="button button--secondary" disabled={editingStep !== null}>
-                <X size={16} style={{ marginRight: '4px' }} />
-                Exit Edit Mode
-              </button>
-            </>
-          )}
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowExportMenu(!showExportMenu)} 
+                    className="btn-secondary flex items-center gap-2" 
+                    disabled={exportLoading}
+                  >
+                    <Download size={16} />
+                    {exportLoading ? 'Exporting...' : 'Export'}
+                  </button>
+                  {showExportMenu && (
+                    <div className="absolute right-0 top-full mt-1 bg-white rounded-md shadow-md border border-gray-200 z-10 py-1 min-w-[160px]">
+                      <button 
+                        onClick={() => handleExport('markdown')} 
+                        className="flex items-center w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        <FileText size={16} className="mr-2" />
+                        Markdown
+                      </button>
+                      <button 
+                        onClick={() => handleExport('html')} 
+                        className="flex items-center w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        <File size={16} className="mr-2" />
+                        HTML
+                      </button>
+                      <button 
+                        onClick={() => handleExport('pdf')} 
+                        className="flex items-center w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        <File size={16} className="mr-2" />
+                        PDF
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={addNewStep}
+                  className="btn-primary flex items-center gap-2"
+                >
+                  <Plus size={16} />
+                  Add Step
+                </button>
+                <button
+                  onClick={saveStepOrder}
+                  className="btn-secondary flex items-center gap-2"
+                  disabled={saveLoading || editingStep !== null}
+                >
+                  <Save size={16} />
+                  {saveLoading ? 'Saving...' : 'Save Order'}
+                </button>
+                <button
+                  onClick={exitEditMode}
+                  className="btn-secondary flex items-center gap-2"
+                  disabled={editingStep !== null}
+                >
+                  <X size={16} />
+                  Exit Edit
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      <div style={{ marginBottom: '32px' }}>
-        <h3>Overview</h3>
-        <p>This documentation was automatically generated from a video recording with voice narration.</p>
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
+        <h3 className="text-lg font-semibold text-gray-800 mb-2">Overview</h3>
+        <p className="text-gray-600">
+          This documentation was automatically generated from a video recording with voice narration.
+        </p>
       </div>
 
-      <div>
-        <h3>Steps</h3>
-
-        {editingStep && (
-          <div style={{ border: '2px solid #25c2a0', borderRadius: '8px', padding: '16px', marginBottom: '24px', backgroundColor: '#f8f8f8' }}>
-            <h4>Edit Step</h4>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '4px' }}>Timestamp:</label>
+      {editingStep && (
+        <div className="bg-white rounded-lg shadow-md border-2 border-primary p-6 mb-8">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+            <Edit className="w-5 h-5 mr-2 text-primary" />
+            Edit Step
+          </h3>
+          
+          <div className="space-y-6">
+            <div>
+              {/* Timestamp field hidden since we're using step numbers instead */}
               <input
-                type="text"
+                type="hidden"
                 value={editingStep.timestamp}
                 onChange={(e) => setEditingStep({ ...editingStep, timestamp: e.target.value })}
-                style={{ width: '100px', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }}
               />
             </div>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '4px' }}>Content:</label>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Content
+              </label>
               <CKEditor
                 editor={ClassicEditor}
                 data={editingStep.text}
-                config={{ toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', '|', 'undo', 'redo'], }}
+                config={{ 
+                  toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', '|', 'undo', 'redo'],
+                }}
                 onChange={(event, editor) => {
                   const data = editor.getData();
                   setEditingStep({ ...editingStep, text: data });
                 }}
               />
             </div>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ display: 'block', marginBottom: '8px' }}>Screenshot at {editingStep.timestamp}:</label>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Screenshot
+              </label>
+              
               {editingStep.imageUrl ? (
-                <div>
+                <div className="space-y-3">
                   <img
                     src={editingStep.imageUrl.startsWith('http') ? editingStep.imageUrl : `${API_BASE_URL}${editingStep.imageUrl}`}
                     alt={`Screenshot at ${editingStep.timestamp}`}
-                    style={{ maxWidth: '100%', maxHeight: '200px', marginBottom: '8px', borderRadius: '4px' }}
+                    className="max-w-full max-h-[300px] rounded-md border border-gray-200"
                   />
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={() => fileInputRef.current?.click()} className="button button--secondary">
-                      <Upload size={16} style={{ marginRight: '4px' }} />
+                  <div className="flex gap-2 flex-wrap">
+                    <button 
+                      onClick={() => fileInputRef.current?.click()} 
+                      className="btn-secondary flex items-center gap-2"
+                    >
+                      <Upload size={16} />
                       Change Image
                     </button>
                     <button
                       onClick={() => {
-                        const fullImageUrl = editingStep.imageUrl.startsWith('http') ? editingStep.imageUrl : `${API_BASE_URL}${editingStep.imageUrl}`;
+                        const fullImageUrl = editingStep.imageUrl.startsWith('http') 
+                          ? editingStep.imageUrl 
+                          : `${API_BASE_URL}${editingStep.imageUrl}`;
                         setImageToAnnotate(fullImageUrl);
                       }}
-                      className="button button--primary"
+                      className="btn-primary flex items-center gap-2"
                     >
-                      <Edit size={16} style={{ marginRight: '4px' }} />
+                      <Edit size={16} />
                       Annotate Image
                     </button>
                   </div>
                 </div>
               ) : (
-                <button onClick={() => fileInputRef.current?.click()} className="button button--primary">
-                  <Upload size={16} style={{ marginRight: '4px' }} />
+                <button 
+                  onClick={() => fileInputRef.current?.click()} 
+                  className="btn-secondary flex items-center gap-2"
+                >
+                  <Upload size={16} />
                   Upload Image
                 </button>
               )}
-              <input type="file" ref={fileInputRef} style={{ display: 'none' }} accept="image/*" onChange={handleFileChange} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button onClick={handleCancelEdit} className="button button--secondary">Cancel</button>
-              <button onClick={handleSaveStep} className="button button--primary" disabled={saveLoading}>
-                {saveLoading ? 'Saving...' : 'Save Changes'}
-              </button>
+              
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                style={{ display: 'none' }} 
+                accept="image/*" 
+                onChange={handleFileChange} 
+              />
             </div>
           </div>
-        )}
+          
+          <div className="flex justify-end gap-3 mt-6">
+            <button 
+              onClick={handleCancelEdit} 
+              className="btn-secondary"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSaveStep} 
+              className="btn-primary flex items-center gap-2" 
+              disabled={saveLoading}
+            >
+              {saveLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  Save Changes
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
+      <div className="mb-8">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">Steps</h3>
+        
         <DndProvider backend={HTML5Backend}>
-          <div className="steps-container">
+          <div className="space-y-1">
             {sortedSteps.map((step, index) => (
               <StepItem
                 key={step.id}
@@ -745,14 +852,42 @@ const handleAnnotationSave = async (dataUrl: string) => {
                 onImageClick={handleImageClick}
               />
             ))}
+            
+            {sortedSteps.length === 0 && (
+              <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+                <p className="text-gray-500">No steps found in this document.</p>
+                {editMode && (
+                  <button 
+                    onClick={addNewStep}
+                    className="mt-4 btn-primary inline-flex items-center gap-2"
+                  >
+                    <Plus size={16} />
+                    Add First Step
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </DndProvider>
 
         {editMode && sortedSteps.length > 0 && !editingStep && (
-          <div style={{ marginTop: '16px' }}>
-            <button onClick={saveStepOrder} className="button button--primary" disabled={saveLoading}>
-              <Save size={16} style={{ marginRight: '4px' }} />
-              {saveLoading ? 'Saving...' : 'Save Order'}
+          <div className="mt-6 flex justify-end">
+            <button 
+              onClick={saveStepOrder} 
+              className="btn-primary flex items-center gap-2" 
+              disabled={saveLoading}
+            >
+              {saveLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  Save Order
+                </>
+              )}
             </button>
           </div>
         )}
@@ -760,19 +895,32 @@ const handleAnnotationSave = async (dataUrl: string) => {
 
       {lightboxImage && (
         <div
-          style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0, 0, 0, 0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '20px' }}
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
           onClick={closeLightbox}
         >
-          <div style={{ position: 'relative' }}>
-            <button onClick={closeLightbox} style={{ position: 'absolute', top: '-40px', right: '-40px', background: 'none', border: 'none', color: 'white', fontSize: '24px', cursor: 'pointer' }}>✕</button>
-            <img src={lightboxImage} alt={lightboxAlt} style={{ maxWidth: '90vw', maxHeight: '80vh', objectFit: 'contain', boxShadow: '0 5px 15px rgba(0, 0, 0, 0.5)' }} onClick={(e) => e.stopPropagation()} />
-            <div style={{ color: 'white', marginTop: '10px', fontSize: '14px', textAlign: 'center' }}>{lightboxAlt}</div>
+          <div className="relative max-w-5xl w-full" onClick={e => e.stopPropagation()}>
+            <button 
+              onClick={closeLightbox}
+              className="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors"
+            >
+              <X size={24} />
+            </button>
+            <img 
+              src={lightboxImage} 
+              alt={lightboxAlt} 
+              className="max-w-full max-h-[85vh] mx-auto object-contain rounded-md"
+            />
+            <div className="text-white text-center mt-4">{lightboxAlt}</div>
           </div>
         </div>
       )}
 
       {imageToAnnotate && (
-        <ImageAnnotator imageUrl={imageToAnnotate} onSave={handleAnnotationSave} onCancel={() => setImageToAnnotate(null)} />
+        <ImageAnnotator 
+          imageUrl={imageToAnnotate} 
+          onSave={handleAnnotationSave} 
+          onCancel={() => setImageToAnnotate(null)} 
+        />
       )}
     </div>
   );

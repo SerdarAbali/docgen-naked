@@ -1,6 +1,6 @@
-//docgen/src/components/VideoUpload/index.tsx
+// client/src/components/VideoUpload/index.tsx
 import React, { useState, useCallback } from 'react';
-import { Upload } from 'lucide-react';
+import { Upload, Check, X, Film, Clock, Loader } from 'lucide-react';
 import SegmentReview from '../SegmentReview';
 
 interface UploadStatus {
@@ -226,70 +226,124 @@ export default function VideoUpload(): JSX.Element {
     }
   };
 
+  // Helper function to determine progress bar color
+  const getProgressBarColor = () => {
+    if (uploadStatus.status === 'error') return 'bg-red-500';
+    if (uploadStatus.status === 'success') return 'bg-green-500';
+    return 'bg-primary';
+  };
+
+  // Helper function for status icon
+  const renderStatusIcon = () => {
+    switch (uploadStatus.status) {
+      case 'error':
+        return <X className="w-5 h-5 text-red-500" />;
+      case 'success':
+        return <Check className="w-5 h-5 text-green-500" />;
+      case 'uploading':
+      case 'processing':
+      case 'extracting_audio':
+      case 'generating_screenshots':
+      case 'transcribing':
+        return <Loader className="w-5 h-5 text-primary animate-spin" />;
+      default:
+        return null;
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl mx-auto py-10 px-4">
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">DocGen</h1>
+        <p className="text-gray-600">Upload a video to automatically generate documentation</p>
+      </div>
+      
       {error && (
-        <div className="alert alert--danger p-4 rounded-lg shadow-md">
-          <p>{error}</p>
+        <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-md">
+          <div className="flex items-center">
+            <X className="w-5 h-5 text-red-500 mr-2" />
+            <p className="text-red-700">{error}</p>
+          </div>
         </div>
       )}
       
       <div
         className={`
-          rounded-lg shadow-md p-6 bg-[var(--ifm-background-surface-color)]
-          transition-all duration-300
-          ${isDragging ? 'ring-2 ring-[var(--ifm-color-primary)] bg-[var(--ifm-background-color)]' : 'ring-1 ring-[var(--ifm-color-primary-light)]'}
+          bg-white rounded-lg border-2 ${isDragging ? 'border-primary border-dashed' : 'border-gray-200'} 
+          transition-all duration-300 p-8 mb-6 shadow-card
         `}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <div className="flex flex-col items-center gap-4">
-          <Upload className="h-10 w-10 text-[var(--ifm-color-primary)]" />
+        <div className="flex flex-col items-center gap-6">
+          <div className={`
+            w-20 h-20 rounded-full flex items-center justify-center
+            ${isDragging ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-500'}
+            transition-colors duration-300
+          `}>
+            <Upload className="w-10 h-10" />
+          </div>
+          
           <div className="w-full max-w-md">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Documentation Title
+            </label>
             <input 
               type="text"
               placeholder="Enter documentation title (optional)"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="input-box w-full"
+              className="form-input"
             />
           </div>
+          
           <div className="text-center">
-            <p className="text-sm text-[var(--ifm-font-color-base)]">
-              {file ? file.name : 'Drop your video here or'}
-            </p>
-            {!file && (
-              <label className="mt-2 inline-flex cursor-pointer items-center">
-                <span className="button button--primary text-sm px-4 py-2">
-                  Select File
-                </span>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="video/*"
-                  onChange={handleFileInput}
-                />
-              </label>
+            {file ? (
+              <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
+                <Film className="w-5 h-5 text-primary" />
+                <span className="text-gray-800 font-medium">{file.name}</span>
+                <button 
+                  onClick={() => setFile(null)} 
+                  className="ml-2 text-gray-500 hover:text-red-500"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-gray-500">Drag your video here or</p>
+                <label className="btn-primary inline-flex cursor-pointer">
+                  <span>Select Video</span>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="video/*"
+                    onChange={handleFileInput}
+                  />
+                </label>
+              </div>
             )}
           </div>
-          <p className="text-xs text-[var(--ifm-font-color-base)] opacity-70">
+          
+          <p className="text-xs text-gray-500">
             Max file size: 100MB • Supports all video formats
           </p>
         </div>
 
         {uploadStatus.status !== 'idle' && uploadStatus.status !== 'awaiting_review' && (
-          <div className="mt-6">
-            <div className="h-2 w-full bg-[var(--ifm-background-color)] rounded-full overflow-hidden">
-              <div
-                className="h-full bg-[var(--ifm-color-primary)] transition-all duration-300 ease-in-out"
-                style={{ width: `${uploadStatus.progress}%` }}
-              />
-            </div>
-            <div className="mt-2 text-sm text-center">
-              <span className={uploadStatus.status === 'error' ? 'text-red-500' : 'text-[var(--ifm-font-color-base)]'}>
+          <div className="mt-8">
+            <div className="flex items-center gap-2 mb-2">
+              {renderStatusIcon()}
+              <span className={`text-sm font-medium ${uploadStatus.status === 'error' ? 'text-red-600' : 'text-gray-700'}`}>
                 {uploadStatus.message}
               </span>
+            </div>
+            <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full ${getProgressBarColor()} transition-all duration-300 ease-in-out`}
+                style={{ width: `${uploadStatus.progress}%` }}
+              />
             </div>
           </div>
         )}
@@ -297,18 +351,22 @@ export default function VideoUpload(): JSX.Element {
 
       {file && uploadStatus.status === 'idle' && (
         <button 
-          className="button button--primary button--lg w-full shadow-md hover:bg-[var(--ifm-color-primary-dark)] transition-colors duration-200"
+          className="btn-primary w-full py-3 flex items-center justify-center gap-2"
           onClick={uploadFile}
         >
+          <Upload className="w-5 h-5" />
           Start Processing
         </button>
       )}
 
       {uploadStatus.status === 'awaiting_review' && jobId && (
-        <SegmentReview 
-          jobId={jobId} 
-          onComplete={handleReviewComplete}
-        />
+        <div className="mt-10">
+          <h2 className="text-2xl font-bold text-gray-800 mb-6">Review Segments</h2>
+          <SegmentReview 
+            jobId={jobId} 
+            onComplete={handleReviewComplete}
+          />
+        </div>
       )}
     </div>
   );

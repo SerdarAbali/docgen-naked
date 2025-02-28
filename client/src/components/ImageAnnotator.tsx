@@ -495,11 +495,11 @@ const ImageAnnotator: React.FC<ImageAnnotatorProps> = ({ imageUrl, onSave, onCan
       // Wait for rendering to complete
       setTimeout(() => {
         try {
-          // Generate high-quality image
+          // Generate optimized image with reduced quality
           const dataUrl = stageRef.current!.toDataURL({
-            pixelRatio: 2,
-            mimeType: 'image/png',
-            quality: 1
+            pixelRatio: 1, // Reduced from 2
+            mimeType: 'image/jpeg', // Changed from image/png
+            quality: 0.8 // Added quality parameter (0.8 = 80%)
           });
           
           console.log("Generated dataURL successfully, length:", dataUrl.length);
@@ -518,7 +518,7 @@ const ImageAnnotator: React.FC<ImageAnnotatorProps> = ({ imageUrl, onSave, onCan
       setIsSaving(false);
     }
   };
-
+  
   const handleCancel = () => {
     if (hasChanges) {
       setShowExitConfirm(true);
