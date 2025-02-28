@@ -1321,49 +1321,49 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
         });
         
         let html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
-  <style>
-    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; }
-    img { max-width: 100%; }
-    .timestamp { background-color: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
-    .note { background-color: #f8f8f8; border-left: 4px solid #0066cc; padding: 15px; margin: 20px 0; }
-  </style>
-</head>
-<body>
-  <h1>${title}</h1>
-  
-  <div class="note">
-    <p>Generated on ${formattedDate}</p>
-  </div>
-  
-  <h2>Overview</h2>
-  <p>This documentation was automatically generated from a video recording with voice narration.</p>
-  
-  <h2>Full Transcript</h2>
-  <p>${segments.map(seg => seg.text).join(' ')}</p>
-  
-  <h2>Timestamped Steps</h2>`;
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${title}</title>
+      <style>
+        body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; }
+        img { max-width: 100%; }
+        .timestamp { background-color: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+        .note { background-color: #f8f8f8; border-left: 4px solid #0066cc; padding: 15px; margin: 20px 0; }
+      </style>
+    </head>
+    <body>
+      <h1>${title}</h1>
+      
+      <div class="note">
+        <p>Generated on ${formattedDate}</p>
+      </div>
+      
+      <h2>Overview</h2>
+      <p>This documentation was automatically generated from a video recording with voice narration.</p>
+      
+      <h2>Full Transcript</h2>
+      <p>${segments.map(seg => seg.text).join(' ')}</p>
+      
+      <h2>Timestamped Steps</h2>`;
         
         segments.forEach(seg => {
           const timestamp = formatTime(Number(seg.original_start_time));
           html += `
-  <h3><span class="timestamp">${timestamp}</span></h3>
-  <p>${seg.text}</p>`;
+      <h3><span class="timestamp">${timestamp}</span></h3>
+      <p>${seg.text}</p>`;
           
           if (seg.screenshot_path) {
             const fullUrl = `http://10.0.0.59:3001${seg.screenshot_path}`;
             html += `
-  <p><img src="${fullUrl}" alt="Screenshot at ${timestamp}"></p>`;
+      <p><img src="${fullUrl}" alt="Screenshot at ${timestamp}"></p>`;
           }
         });
         
         html += `
-</body>
-</html>`;
+    </body>
+    </html>`;
         
         res.setHeader('Content-Type', 'text/html');
         res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}.html"`);
@@ -1379,60 +1379,72 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
         });
         
         let html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title}</title>
-  <style>
-    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; padding: 20px; }
-    img { max-width: 100%; }
-    .timestamp { background-color: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
-    .note { background-color: #f8f8f8; border-left: 4px solid #0066cc; padding: 15px; margin: 20px 0; }
-  </style>
-</head>
-<body>
-  <h1>${title}</h1>
-  
-  <div class="note">
-    <p>Generated on ${formattedDate}</p>
-  </div>
-  
-  <h2>Overview</h2>
-  <p>This documentation was automatically generated from a video recording with voice narration.</p>
-  
-  <h2>Full Transcript</h2>
-  <p>${segments.map(seg => seg.text).join(' ')}</p>
-  
-  <h2>Timestamped Steps</h2>`;
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${title}</title>
+      <style>
+        body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; padding: 20px; }
+        img { max-width: 100%; }
+        .timestamp { background-color: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+        .note { background-color: #f8f8f8; border-left: 4px solid #0066cc; padding: 15px; margin: 20px 0; }
+      </style>
+    </head>
+    <body>
+      <h1>${title}</h1>
+      
+      <div class="note">
+        <p>Generated on ${formattedDate}</p>
+      </div>
+      
+      <h2>Overview</h2>
+      <p>This documentation was automatically generated from a video recording with voice narration.</p>
+      
+      <h2>Full Transcript</h2>
+      <p>${segments.map(seg => seg.text).join(' ')}</p>
+      
+      <h2>Timestamped Steps</h2>`;
         
         segments.forEach(seg => {
           const timestamp = formatTime(Number(seg.original_start_time));
           html += `
-  <h3><span class="timestamp">${timestamp}</span></h3>
-  <p>${seg.text}</p>`;
+      <h3><span class="timestamp">${timestamp}</span></h3>
+      <p>${seg.text}</p>`;
           
           if (seg.screenshot_path) {
             const fullUrl = `http://10.0.0.59:3001${seg.screenshot_path}`;
             html += `
-  <p><img src="${fullUrl}" alt="Screenshot at ${timestamp}"></p>`;
+      <p><img src="${fullUrl}" alt="Screenshot at ${timestamp}"></p>`;
           }
         });
         
         html += `
-</body>
-</html>`;
-
-        const browser = await puppeteer.launch({ headless: true });
-        const page = await browser.newPage();
-        await page.setContent(html);
-        const pdfBuffer = await page.pdf({ format: 'A4' });
-        await browser.close();
-        
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}.pdf"`);
-        return res.send(pdfBuffer);
-      }
+    </body>
+    </html>`;
+    
+        try {
+          const browser = await puppeteer.launch({ 
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+          });
+          const page = await browser.newPage();
+          await page.setContent(html);
+          const pdfBuffer = await page.pdf({ format: 'A4' });
+          await browser.close();
+          
+          res.setHeader('Content-Type', 'application/pdf');
+          res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}.pdf"`);
+          return res.send(pdfBuffer);
+        } catch (pdfError) {
+          console.error('PDF generation error:', pdfError);
+          
+          // Fallback to HTML if PDF generation fails
+          res.setHeader('Content-Type', 'text/html');
+          res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}_print.html"`);
+          return res.send(html);
+        }
+      } // <--- Added closing brace here
       
       default:
         return res.status(400).json({ error: 'Invalid export format. Supported formats are: markdown, html, pdf' });
