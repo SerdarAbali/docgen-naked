@@ -8,6 +8,8 @@ import { Pool } from 'pg';
 import { v4 as uuidv4 } from 'uuid';
 import ffmpeg from 'fluent-ffmpeg';
 import { spawn } from 'child_process';
+import { renderToString } from 'react-dom/server';
+import * as puppeteer from 'puppeteer';
 
 // Base paths configuration
 const UPLOAD_BASE_DIR = path.join(__dirname, '..', 'uploads');
@@ -73,7 +75,6 @@ const screenshotStorage = multer.diskStorage({
   destination: async (req, file, cb) => {
     try {
       const { documentId } = req.params;
-      // Get job_id from documentId
       const docResult = await pool.query(
         'SELECT job_id FROM documentation WHERE job_id = $1 OR id = $1',
         [documentId]
@@ -169,6 +170,34 @@ app.get('/api/docs/list', async (req, res) => {
   }
 });
 
+app.post('/api/docs/:jobId/publish/github', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { repo, token, path, title } = req.body;
+    
+    if (!repo || !token) {
+      return res.status(400).json({ error: 'Repository and token are required' });
+    }
+    
+    const docPath = path.join(DOCS_DIR, 'generated', jobId, 'index.md');
+    const content = await fs.readFile(docPath, 'utf8');
+    
+    const { publishToGitHub } = require('./integrations/github');
+    const result = await publishToGitHub({
+      repo,
+      token,
+      path: path || '',
+      title: title || `DocGen-${jobId}`,
+      content
+    });
+    
+    res.json(result);
+  } catch (error) {
+    console.error('GitHub publish error:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to publish to GitHub' });
+  }
+});
+
 // FFmpeg processing functions
 async function extractAudio(inputPath: string, outputDir: string): Promise<string> {
   const outputPath = path.join(outputDir, 'audio.wav');
@@ -185,9 +214,8 @@ async function extractAudio(inputPath: string, outputDir: string): Promise<strin
 }
 
 async function generateScreenshots(inputPath: string, outputDir: string, timestamps: number[]): Promise<string[]> {
-  const screenshots: string[] = [];
+  const screenshots = [];
   
-  // Process screenshots sequentially to ensure frame accuracy
   for (let i = 0; i < timestamps.length; i++) {
     const timestamp = timestamps[i];
     const outputPath = path.join(outputDir, `shot_${i + 1}.jpg`);
@@ -195,8 +223,8 @@ async function generateScreenshots(inputPath: string, outputDir: string, timesta
 
     await new Promise((resolve, reject) => {
       ffmpeg(inputPath)
-        .seekInput(timestamp)  // Use seekInput for precise seeking
-        .outputOptions('-vframes 1')  // Capture exactly one frame
+        .seekInput(timestamp)
+        .outputOptions('-vframes 1')
         .output(outputPath)
         .on('end', resolve)
         .on('error', (err) => {
@@ -206,14 +234,12 @@ async function generateScreenshots(inputPath: string, outputDir: string, timesta
         .run();
     });
 
-    // Add a small delay between screenshots to ensure system resources are available
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   
   return screenshots;
 }
 
-// Type for Whisper transcription result
 interface WhisperResult {
   text: string;
   segments: Array<{
@@ -281,7 +307,6 @@ async function completeProcessing(jobId: string) {
   try {
     console.log('=== Starting final processing ===');
     
-    // Get job info
     const jobResult = await pool.query(
       'SELECT file_path FROM processing_jobs WHERE id = $1',
       [jobId]
@@ -293,7 +318,6 @@ async function completeProcessing(jobId: string) {
     
     const { file_path: filePath } = jobResult.rows[0];
     
-    // Get segments
     const segmentResult = await pool.query(
       'SELECT * FROM transcription_segments WHERE job_id = $1 ORDER BY segment_index',
       [jobId]
@@ -301,7 +325,6 @@ async function completeProcessing(jobId: string) {
     
     const segments = segmentResult.rows;
     
-    // Prepare directories
     const dirs = await getJobDirs(jobId);
     if (!dirs) {
       throw new Error('Job directories not found');
@@ -313,24 +336,20 @@ async function completeProcessing(jobId: string) {
     await fs.mkdir(docDir, { recursive: true });
     await fs.mkdir(staticImgDir, { recursive: true });
     
-    // Generate screenshots only for segments that don't have screenshots yet and have a valid timestamp
     console.log('=== Processing screenshots ===');
     
-    // First check for existing screenshots in the DB
     const screenshotResult = await pool.query(
       'SELECT segment_index, screenshot_path FROM transcription_segments WHERE job_id = $1 AND screenshot_path IS NOT NULL',
       [jobId]
     );
     
-    // Map of segment index to screenshot URL
     const existingScreenshots = new Map();
     screenshotResult.rows.forEach(row => {
       existingScreenshots.set(row.segment_index, row.screenshot_path);
     });
-    
+
     console.log(`Found ${existingScreenshots.size} existing screenshots`);
     
-    // Generate timestamps for segments without screenshots and with valid timestamps
     const segmentsNeedingScreenshots = segments.filter(segment => 
       !existingScreenshots.has(segment.segment_index) && segment.original_start_time > 0
     );
@@ -341,27 +360,23 @@ async function completeProcessing(jobId: string) {
       segment.original_start_time === 0 ? 1 : segment.original_start_time + 1
     );
     
-    // Generate new screenshots only if needed
     let newScreenshotPaths: string[] = [];
     if (timestamps.length > 0) {
       newScreenshotPaths = await generateScreenshots(filePath, dirs.screenshots, timestamps);
       console.log(`Generated ${newScreenshotPaths.length} new screenshots`);
     }
     
-    // Build the complete image URL map for all segments
     const imageUrls: string[] = [];
     
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
       
-      // Check if we already have a screenshot for this segment
       if (existingScreenshots.has(segment.segment_index)) {
         imageUrls[i] = existingScreenshots.get(segment.segment_index) || '';
         console.log(`Using existing screenshot for segment ${i}: ${imageUrls[i]}`);
         continue;
       }
       
-      // Otherwise, use a newly generated screenshot if needed
       const newScreenshotIndex = segmentsNeedingScreenshots.findIndex(s => 
         s.segment_index === segment.segment_index
       );
@@ -372,34 +387,31 @@ async function completeProcessing(jobId: string) {
         const destPath = path.join(staticImgDir, destFile);
         
         try {
-          // Check if the source file exists before trying to copy
           try {
             await fs.access(sourcePath, fs.constants.F_OK);
           } catch (accessError) {
             console.log(`Screenshot ${sourcePath} doesn't exist, skipping segment ${i}`);
-            imageUrls[i] = ''; // No image for this segment
-            continue; // Skip to the next iteration
+            imageUrls[i] = '';
+            continue;
           }
           
           await fs.copyFile(sourcePath, destPath);
           imageUrls[i] = `/img/${jobId}/${destFile}`;
           console.log(`Successfully copied screenshot for segment ${i}`);
           
-          // Update the database with the screenshot path
           await pool.query(
             'UPDATE transcription_segments SET screenshot_path = $1 WHERE job_id = $2 AND segment_index = $3',
             [imageUrls[i], jobId, segment.segment_index]
           );
         } catch (error) {
           console.error(`Error copying screenshot for segment ${i}:`, error);
-          imageUrls[i] = ''; // No image for this segment
+          imageUrls[i] = '';
         }
       } else {
-        imageUrls[i] = ''; // No image for this segment
+        imageUrls[i] = '';
       }
     }
 
-    // Get document info
     const docResult = await pool.query(
       'SELECT title FROM documentation WHERE job_id = $1',
       [jobId]
@@ -411,7 +423,6 @@ async function completeProcessing(jobId: string) {
     
     const { title } = docResult.rows[0];
     
-    // Format creation date
     const now = new Date();
     const formattedDate = now.toLocaleDateString('en-US', {
       weekday: 'long',
@@ -422,7 +433,6 @@ async function completeProcessing(jobId: string) {
       minute: '2-digit'
     });
     
-    // Generate markdown content
     const content = `---
 title: ${title}
 sidebar_label: ${title}
@@ -453,10 +463,8 @@ ${seg.text}
 ${imageUrl ? `\n![Screenshot at ${formatTimestamp(seg.original_start_time)}](${imageUrl})` : ''}`;
 }).join('\n\n')}`;
     
-    // Write markdown file
     await fs.writeFile(path.join(docDir, 'index.md'), content, 'utf8');
     
-    // Update status to completed
     await pool.query(
       'UPDATE processing_jobs SET status = $1, error_message = $2 WHERE id = $3',
       ['completed', 'Processing completed successfully', jobId]
@@ -489,7 +497,6 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
       throw new Error('Job directories not found');
     }
 
-    // First extract audio
     console.log('=== Starting audio extraction ===');
     await pool.query(
       'UPDATE processing_jobs SET status = $1, error_message = $2 WHERE id = $3',
@@ -499,7 +506,6 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
     const audioPath = await extractAudio(filePath, dirs.audio);
     console.log('Audio extracted to:', audioPath);
 
-    // Then do transcription
     console.log('=== Starting transcription process ===');
     await pool.query(
       'UPDATE processing_jobs SET status = $1, error_message = $2 WHERE id = $3',
@@ -509,7 +515,6 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
     const transcription = await transcribeAudio(audioPath, jobId);
     console.log('Transcription completed with segments:', transcription.segments.length);
 
-    // Filter segments if needed
     let filteredSegments = transcription.segments;
     if (startTime !== undefined && endTime !== undefined) {
       console.log('[Segment Mode] Filtering segments between', startTime, 'and', endTime);
@@ -522,7 +527,6 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
     }
 
     if (documentId) {
-      // Append to existing documentation (edit mode)
       console.log('[Edit Mode] Appending steps to existing document:', documentId);
       for (let i = 0; i < filteredSegments.length; i++) {
         const segment = filteredSegments[i];
@@ -536,7 +540,6 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
         );
       }
       
-      // Update status to awaiting review
       await pool.query(
         'UPDATE processing_jobs SET status = $1, error_message = $2 WHERE id = $3',
         ['awaiting_review', 'Transcription completed. Waiting for segment review.', jobId]
@@ -545,11 +548,9 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
       console.log('Edit mode: Segments stored and waiting for review');
       return;
     } else {
-      // Create new documentation (initial upload)
       const docId = uuidv4();
       const docPath = `/docs/generated/${jobId}`;
 
-      // Store segments in database for review
       for (let i = 0; i < filteredSegments.length; i++) {
         const segment = filteredSegments[i];
         const segmentId = uuidv4();
@@ -562,13 +563,11 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
         );
       }
 
-      // Create initial documentation entry
       await pool.query(
         'INSERT INTO documentation (id, job_id, title, content) VALUES ($1, $2, $3, $4)',
         [docId, jobId, title, docPath]
       );
 
-      // Update status to awaiting review
       await pool.query(
         'UPDATE processing_jobs SET status = $1, error_message = $2 WHERE id = $3',
         ['awaiting_review', 'Transcription completed. Waiting for segment review.', jobId]
@@ -588,7 +587,6 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
   }
 }
 
-// Initialize database tables
 async function initDatabase() {
   try {
     await pool.query(`
@@ -637,7 +635,6 @@ async function initDatabase() {
   }
 }
 
-// Utility function to get job directories
 async function getJobDirs(jobId: string): Promise<JobDirs | null> {
   try {
     const dirs = {
@@ -654,20 +651,17 @@ async function getJobDirs(jobId: string): Promise<JobDirs | null> {
   }
 }
 
-// Get doc/job info (handles both doc_id and job_id)
 app.get('/api/docs/id/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const cleanId = id.trim().replace(/\/$/, '');
     console.log('[Server] Fetching doc/job info for ID:', cleanId);
 
-    // Try as job_id first (matches your flow)
     let result = await pool.query(
       'SELECT id, job_id, title FROM documentation WHERE job_id = $1',
       [cleanId]
     );
     if (result.rows.length === 0) {
-      // If not found as job_id, try as doc_id
       result = await pool.query(
         'SELECT id, job_id, title FROM documentation WHERE id = $1',
         [cleanId]
@@ -687,7 +681,6 @@ app.get('/api/docs/id/:id', async (req, res) => {
   }
 });
 
-// Get available videos for a document
 app.get('/api/docs/:documentId/videos', async (req, res) => {
   try {
     const { documentId } = req.params;
@@ -720,7 +713,6 @@ app.get('/api/docs/:documentId/videos', async (req, res) => {
   }
 });
 
-// Video streaming endpoint
 app.get('/video/:videoId', async (req, res) => {
   try {
     const { videoId } = req.params;
@@ -737,7 +729,6 @@ app.get('/video/:videoId', async (req, res) => {
     const videoPath = result.rows[0].file_path;
     console.log('[Server] Video path:', videoPath);
 
-    // Verify file exists and is readable
     try {
       await fs.access(videoPath, fs.constants.R_OK);
       console.log('[Server] File access verified for:', videoPath);
@@ -747,7 +738,6 @@ app.get('/video/:videoId', async (req, res) => {
       return;
     }
 
-    // Stream the video
     const stat = await fs.stat(videoPath);
     const fileSize = stat.size;
     const range = req.headers.range;
@@ -784,13 +774,11 @@ app.get('/video/:videoId', async (req, res) => {
   }
 });
 
-// Generate screenshot from video at timestamp
 app.post('/api/docs/:jobId/video-screenshot', async (req, res) => {
   try {
     const { jobId } = req.params;
     const { videoId, timestamp } = req.body;
 
-    // Get video path
     const videoResult = await pool.query(
       'SELECT file_path FROM processing_jobs WHERE id = $1',
       [videoId]
@@ -803,11 +791,9 @@ app.post('/api/docs/:jobId/video-screenshot', async (req, res) => {
 
     const videoPath = videoResult.rows[0].file_path;
     
-    // Create output directory
     const outputDir = path.join(STATIC_DIR, 'img', jobId);
     await fs.mkdir(outputDir, { recursive: true });
 
-    // Generate screenshot
     const screenshotFilename = `screenshot_${Date.now()}.jpg`;
     const outputPath = path.join(outputDir, screenshotFilename);
 
@@ -821,7 +807,6 @@ app.post('/api/docs/:jobId/video-screenshot', async (req, res) => {
         .run();
     });
 
-    // Return image URL
     const imageUrl = `/img/${jobId}/${screenshotFilename}`;
     res.json({
       success: true,
@@ -839,7 +824,6 @@ app.get('/api/docs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
     
-    // First, get document title and content
     const docResult = await pool.query(
       'SELECT title, content FROM documentation WHERE job_id = $1',
       [jobId]
@@ -850,11 +834,9 @@ app.get('/api/docs/:jobId', async (req, res) => {
       return;
     }
 
-    // Read the actual markdown file
     const docPath = path.join(DOCS_DIR, 'generated', jobId, 'index.md');
     const content = await fs.readFile(docPath, 'utf8');
 
-    // Get all segments/steps
     const segmentsResult = await pool.query(
       `SELECT id, segment_index, text, original_start_time, original_end_time, screenshot_path, "order" 
        FROM transcription_segments 
@@ -863,7 +845,6 @@ app.get('/api/docs/:jobId', async (req, res) => {
       [jobId]
     );
 
-    // Format the steps data
     const steps = segmentsResult.rows.map(segment => ({
       id: segment.id,
       timestamp: formatTime(Number(segment.original_start_time)),
@@ -872,10 +853,9 @@ app.get('/api/docs/:jobId', async (req, res) => {
       order: segment.order || segment.segment_index
     }));
 
-    // Return both the content and structured steps
     res.json({
       title: docResult.rows[0].title,
-      content: content, // Keep original content for backward compatibility
+      content: content,
       steps: steps
     });
   } catch (error) {
@@ -884,14 +864,12 @@ app.get('/api/docs/:jobId', async (req, res) => {
   }
 });
 
-// Make sure you have a formatTime function (you likely already do)
 function formatTime(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.floor(seconds % 60);
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
-// Update document content
 app.put('/api/docs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -902,11 +880,9 @@ app.put('/api/docs/:jobId', async (req, res) => {
       return;
     }
 
-    // Write the new content to the markdown file
     const docPath = path.join(DOCS_DIR, 'generated', jobId, 'index.md');
     await fs.writeFile(docPath, content, 'utf8');
 
-    // Update the database timestamp
     const result = await pool.query(
       `UPDATE documentation 
        SET updated_at = CURRENT_TIMESTAMP 
@@ -927,7 +903,6 @@ app.put('/api/docs/:jobId', async (req, res) => {
   }
 });
 
-// Upload screenshot for a document
 app.post('/api/docs/:documentId/screenshots', uploadScreenshot.single('screenshot'), async (req, res) => {
   console.log('[Server] Screenshot upload request for documentId:', req.params.documentId);
   try {
@@ -937,7 +912,6 @@ app.post('/api/docs/:documentId/screenshots', uploadScreenshot.single('screensho
 
     const { documentId } = req.params;
 
-    // First get doc/job mapping
     const docResult = await pool.query(
       'SELECT id, job_id FROM documentation WHERE job_id = $1 OR id = $1',
       [documentId]
@@ -953,7 +927,6 @@ app.post('/api/docs/:documentId/screenshots', uploadScreenshot.single('screensho
     await fs.mkdir(screenshotsDir, { recursive: true });
     console.log('[Server] Created screenshots directory:', screenshotsDir);
 
-    // Generate the URL for the screenshot
     const imageUrl = `/img/${job_id}/${req.file.filename}`;
     console.log('[Server] Screenshot uploaded to:', imageUrl);
 
@@ -971,7 +944,6 @@ app.post('/api/docs/:documentId/screenshots', uploadScreenshot.single('screensho
   }
 });
 
-// Video upload endpoint
 app.post('/api/upload', upload.single('video'), async (req, res) => {
   console.log('[Server] Upload request received:', req.file?.originalname);
   try {
@@ -982,7 +954,6 @@ app.post('/api/upload', upload.single('video'), async (req, res) => {
     const title = req.body.title || path.basename(req.file.originalname, path.extname(req.file.originalname));
     console.log('[Server] Processing upload with title:', title, 'jobId:', req.jobId);
 
-    // Check if this is an edit (documentId, startTime, endTime provided)
     const documentId = req.body.documentId;
     const startTime = req.body.startTime ? parseFloat(req.body.startTime) : undefined;
     const endTime = req.body.endTime ? parseFloat(req.body.endTime) : undefined;
@@ -1008,7 +979,6 @@ app.post('/api/upload', upload.single('video'), async (req, res) => {
   }
 });
 
-// Get processing status
 app.get('/api/status/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -1035,15 +1005,12 @@ app.get('/api/status/:jobId', async (req, res) => {
   }
 });
 
-// Delete document
 app.delete('/api/docs/:jobId', async (req, res) => {
   const { jobId } = req.params;
 
   try {
-    // Start a transaction
     await pool.query('BEGIN');
 
-    // Get document info
     const docResult = await pool.query(
       'SELECT id FROM documentation WHERE job_id = $1',
       [jobId]
@@ -1053,45 +1020,38 @@ app.delete('/api/docs/:jobId', async (req, res) => {
       throw new Error('Document not found');
     }
 
-    // Delete document content
     await pool.query(
       'DELETE FROM documentation WHERE job_id = $1',
       [jobId]
     );
 
-    // Delete processing job
     await pool.query(
       'DELETE FROM processing_jobs WHERE id = $1',
       [jobId]
     );
 
-    // Delete files
     const dirs = {
       root: path.join(__dirname, '..', 'uploads', jobId),
       docs: path.join(__dirname, '..', '..', 'docs', 'generated', jobId),
       img: path.join(__dirname, '..', '..', 'static', 'img', jobId)
     };
 
-    // Remove directories and their contents
     await Promise.all([
       fs.rm(dirs.root, { recursive: true, force: true }).catch(() => {}),
       fs.rm(dirs.docs, { recursive: true, force: true }).catch(() => {}),
       fs.rm(dirs.img, { recursive: true, force: true }).catch(() => {})
     ]);
 
-    // Commit transaction
     await pool.query('COMMIT');
 
     res.json({ success: true, message: 'Document deleted successfully' });
   } catch (error) {
-    // Rollback on error
     await pool.query('ROLLBACK');
     console.error('Error deleting document:', error);
     res.status(500).json({ error: 'Failed to delete document' });
   }
 });
 
-// Add this near your other endpoints
 app.get('/api/docs/:jobId/segments', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -1111,7 +1071,6 @@ app.get('/api/docs/:jobId/segments', async (req, res) => {
   }
 });
 
-// Update the finalize-segments endpoint to handle screenshot_path
 app.post('/api/docs/:jobId/finalize-segments', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -1119,10 +1078,8 @@ app.post('/api/docs/:jobId/finalize-segments', async (req, res) => {
     
     await pool.query('BEGIN');
     
-    // Delete existing segments
     await pool.query('DELETE FROM transcription_segments WHERE job_id = $1', [jobId]);
     
-    // Insert updated segments with screenshots if provided
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
       await pool.query(
@@ -1135,7 +1092,6 @@ app.post('/api/docs/:jobId/finalize-segments', async (req, res) => {
     
     await pool.query('COMMIT');
     
-    // Start the completion process
     completeProcessing(jobId).catch(error => {
       console.error('Error in completion process:', error);
       pool.query(
@@ -1152,7 +1108,6 @@ app.post('/api/docs/:jobId/finalize-segments', async (req, res) => {
   }
 });
 
-// Update screenshot path for a segment, handling temporary IDs
 app.post('/api/docs/:jobId/update-segment-screenshot', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -1164,7 +1119,6 @@ app.post('/api/docs/:jobId/update-segment-screenshot', async (req, res) => {
     
     console.log('[Server] Updating screenshot for segmentId:', segmentId, 'with path:', screenshotPath);
 
-    // Check if the segment exists with the given ID
     let segmentResult = await pool.query(
       'SELECT * FROM transcription_segments WHERE id = $1 AND job_id = $2',
       [segmentId, jobId]
@@ -1172,7 +1126,6 @@ app.post('/api/docs/:jobId/update-segment-screenshot', async (req, res) => {
 
     let segmentIdToUse = segmentId;
 
-    // If the segment doesn't exist, create a new segment with the screenshot
     if (segmentResult.rows.length === 0) {
       console.log('[Server] Segment not found, creating new segment');
       const newSegmentId = uuidv4();
@@ -1185,7 +1138,6 @@ app.post('/api/docs/:jobId/update-segment-screenshot', async (req, res) => {
       segmentIdToUse = newSegmentId;
     }
 
-    // Update the screenshot path for the segment (using the real or newly created ID)
     const updateResult = await pool.query(
       'UPDATE transcription_segments SET screenshot_path = $1 WHERE id = $2 AND job_id = $3 RETURNING *',
       [screenshotPath, segmentIdToUse, jobId]
@@ -1208,7 +1160,6 @@ app.post('/api/docs/:jobId/update-segment-screenshot', async (req, res) => {
   }
 });
 
-// Updated Endpoint: Reorder steps
 app.post('/api/docs/:docId/steps/reorder', async (req, res) => {
   try {
     const { docId } = req.params;
@@ -1217,10 +1168,8 @@ app.post('/api/docs/:docId/steps/reorder', async (req, res) => {
     console.log('Received reorder request for doc:', docId);
     console.log('Steps order:', steps);
     
-    // Start a transaction
     await pool.query('BEGIN');
     
-    // Update each step's order
     for (const step of steps) {
       await pool.query(
         'UPDATE transcription_segments SET "order" = $1 WHERE id = $2 AND job_id = $3',
@@ -1228,19 +1177,16 @@ app.post('/api/docs/:docId/steps/reorder', async (req, res) => {
       );
     }
     
-    // Commit transaction
     await pool.query('COMMIT');
     
     res.json({ success: true, message: 'Steps reordered successfully' });
   } catch (error) {
-    // Rollback on error
     await pool.query('ROLLBACK');
     console.error('Error reordering steps:', error);
     res.status(500).json({ error: 'Failed to reorder steps', details: error instanceof Error ? error.message : 'Unknown error' });
   }
 });
 
-// Updated Endpoint: Update step content
 app.put('/api/docs/:docId/steps/:stepId', async (req, res) => {
   try {
     const { docId, stepId } = req.params;
@@ -1264,7 +1210,239 @@ app.put('/api/docs/:docId/steps/:stepId', async (req, res) => {
   }
 });
 
-// Start server
+function convertMarkdownToHtml(markdown: string): string {
+  let html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: system-ui, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; }
+    img { max-width: 100%; }
+    code { background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; }
+    pre { background-color: #f5f5f5; padding: 16px; border-radius: 3px; overflow-x: auto; }
+  </style>
+  <title>Exported Documentation</title>
+</head>
+<body>`;
+
+  const titleMatch = markdown.match(/title:\s*([^\n]+)/);
+  if (titleMatch) {
+    html += `<h1>${titleMatch[1]}</h1>`;
+  }
+
+  const contentWithoutFrontmatter = markdown.replace(/---[\s\S]*?---/, '');
+  
+  html += contentWithoutFrontmatter
+    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+    .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+    .replace(/!\[(.*?)\]\((.*?)\)/gim, '<img src="$2" alt="$1">')
+    .replace(/\[(.*?)\]\((.*?)\)/gim, '<a href="$2">$1</a>')
+    .replace(/```(.*?)```/gims, '<pre><code>$1</code></pre>')
+    .replace(/`(.*?)`/gm, '<code>$1</code>')
+    .replace(/^\> (.*$)/gim, '<blockquote>$1</blockquote>')
+    .replace(/\n\n/gim, '</p><p>')
+    .replace(/\n/gim, '<br>');
+
+  html += `</body></html>`;
+  return html;
+}
+
+app.get('/api/docs/:jobId/export', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { format } = req.query as { format?: string };
+    
+    const docResult = await pool.query(
+      'SELECT title, content FROM documentation WHERE job_id = $1',
+      [jobId]
+    );
+    
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    const { title, content } = docResult.rows[0];
+    
+    const segmentsResult = await pool.query(
+      `SELECT id, text, original_start_time, screenshot_path FROM transcription_segments 
+       WHERE job_id = $1 
+       ORDER BY COALESCE("order", segment_index)`,
+      [jobId]
+    );
+    
+    const segments = segmentsResult.rows;
+    
+    switch (format) {
+      case 'markdown': {
+        const formattedDate = new Date().toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+        
+        let markdown = `# ${title}\n\n`;
+        markdown += `> Generated on ${formattedDate}\n\n`;
+        
+        markdown += `## Overview\n\n`;
+        markdown += `This documentation was automatically generated from a video recording with voice narration.\n\n`;
+        
+        markdown += `## Full Transcript\n\n`;
+        markdown += segments.map(seg => seg.text).join(' ') + '\n\n';
+        
+        markdown += `## Timestamped Steps\n\n`;
+        
+        segments.forEach(seg => {
+          const timestamp = formatTime(Number(seg.original_start_time));
+          markdown += `### ${timestamp}\n\n`;
+          markdown += `${seg.text}\n\n`;
+          
+          if (seg.screenshot_path) {
+            const fullUrl = `http://10.0.0.59:3001${seg.screenshot_path}`;
+            markdown += `![Screenshot at ${timestamp}](${fullUrl})\n\n`;
+          }
+        });
+        
+        res.setHeader('Content-Type', 'text/markdown');
+        res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}.md"`);
+        return res.send(markdown);
+      }
+      
+      case 'html': {
+        const formattedDate = new Date().toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+        
+        let html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; }
+    img { max-width: 100%; }
+    .timestamp { background-color: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+    .note { background-color: #f8f8f8; border-left: 4px solid #0066cc; padding: 15px; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  
+  <div class="note">
+    <p>Generated on ${formattedDate}</p>
+  </div>
+  
+  <h2>Overview</h2>
+  <p>This documentation was automatically generated from a video recording with voice narration.</p>
+  
+  <h2>Full Transcript</h2>
+  <p>${segments.map(seg => seg.text).join(' ')}</p>
+  
+  <h2>Timestamped Steps</h2>`;
+        
+        segments.forEach(seg => {
+          const timestamp = formatTime(Number(seg.original_start_time));
+          html += `
+  <h3><span class="timestamp">${timestamp}</span></h3>
+  <p>${seg.text}</p>`;
+          
+          if (seg.screenshot_path) {
+            const fullUrl = `http://10.0.0.59:3001${seg.screenshot_path}`;
+            html += `
+  <p><img src="${fullUrl}" alt="Screenshot at ${timestamp}"></p>`;
+          }
+        });
+        
+        html += `
+</body>
+</html>`;
+        
+        res.setHeader('Content-Type', 'text/html');
+        res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}.html"`);
+        return res.send(html);
+      }
+      
+      case 'pdf': {
+        const formattedDate = new Date().toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+        
+        let html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; line-height: 1.6; padding: 20px; }
+    img { max-width: 100%; }
+    .timestamp { background-color: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
+    .note { background-color: #f8f8f8; border-left: 4px solid #0066cc; padding: 15px; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  
+  <div class="note">
+    <p>Generated on ${formattedDate}</p>
+  </div>
+  
+  <h2>Overview</h2>
+  <p>This documentation was automatically generated from a video recording with voice narration.</p>
+  
+  <h2>Full Transcript</h2>
+  <p>${segments.map(seg => seg.text).join(' ')}</p>
+  
+  <h2>Timestamped Steps</h2>`;
+        
+        segments.forEach(seg => {
+          const timestamp = formatTime(Number(seg.original_start_time));
+          html += `
+  <h3><span class="timestamp">${timestamp}</span></h3>
+  <p>${seg.text}</p>`;
+          
+          if (seg.screenshot_path) {
+            const fullUrl = `http://10.0.0.59:3001${seg.screenshot_path}`;
+            html += `
+  <p><img src="${fullUrl}" alt="Screenshot at ${timestamp}"></p>`;
+          }
+        });
+        
+        html += `
+</body>
+</html>`;
+
+        const browser = await puppeteer.launch({ headless: true });
+        const page = await browser.newPage();
+        await page.setContent(html);
+        const pdfBuffer = await page.pdf({ format: 'A4' });
+        await browser.close();
+        
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}.pdf"`);
+        return res.send(pdfBuffer);
+      }
+      
+      default:
+        return res.status(400).json({ error: 'Invalid export format. Supported formats are: markdown, html, pdf' });
+    }
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({ error: 'Failed to export document' });
+  }
+});
+
 const PORT = Number(process.env.PORT) || 3001;
 
 initDatabase().then(() => {
