@@ -1,6 +1,6 @@
 // client/src/pages/DocumentationViewer.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { CKEditor } from '@ckeditor/ckeditor5-react';
@@ -40,12 +40,26 @@ interface StepItemProps {
   onEdit: () => void;
   onDelete: () => void;
   onImageClick: (imageUrl: string, altText: string) => void;
+  onSave: (updatedStep: Step) => void;
+  onCancel: () => void;
+  onAnnotate: (imageUrl: string) => void;
+  onUploadImage: () => void;
 }
 
-// StepItem component
+// StepItem component with in-place editing
 const StepItem: React.FC<StepItemProps> = ({
-  step, index, editMode, isEditing, moveStep, onEdit, onDelete, onImageClick
+  step, index, editMode, isEditing, moveStep, onEdit, onDelete, onImageClick, onSave, onCancel, onAnnotate, onUploadImage
 }) => {
+  // Ref to scroll to when editing
+  const stepRef = useRef<HTMLDivElement>(null);
+  
+  // Scroll to this step when editing starts
+  useEffect(() => {
+    if (isEditing && stepRef.current) {
+      stepRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [isEditing]);
+
   const [{ isDragging }, dragRef] = useDrag({
     type: 'STEP',
     item: { index },
@@ -68,13 +82,24 @@ const StepItem: React.FC<StepItemProps> = ({
     dropRef(node);
   };
 
+  // Local state for step editing
+  const [localStepText, setLocalStepText] = useState(step.text);
+  
+  useEffect(() => {
+    setLocalStepText(step.text);
+  }, [step.text, isEditing]);
+
   return (
     <div
-      ref={editMode ? ref : null}
+      ref={(node) => {
+        if (editMode) ref(node);
+        // @ts-ignore
+        stepRef.current = node;
+      }}
       className={`
         bg-white border rounded-lg mb-4 transition-all duration-200 shadow-sm
         ${isDragging ? 'opacity-50' : 'opacity-100'}
-        ${editMode ? 'border-gray-300' : 'border-gray-200'}
+        ${isEditing ? 'border-primary ring-2 ring-primary ring-opacity-25' : editMode ? 'border-gray-300' : 'border-gray-200'}
       `}
     >
       <div className="p-4 relative">
@@ -108,21 +133,96 @@ const StepItem: React.FC<StepItemProps> = ({
           </span>
         </div>
         
-        <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: step.text }} />
-        
-        {step.imageUrl && (
-          <div className="mt-4">
-            <img
-              src={step.imageUrl}
-              alt={`Screenshot at ${step.timestamp}`}
-              className="max-w-full rounded-md border border-gray-200 hover:border-primary transition-colors cursor-pointer"
-              onClick={() => onImageClick(step.imageUrl!, `Screenshot at ${step.timestamp}`)}
-              onError={(e) => {
-                console.error('Image failed to load:', step.imageUrl);
-                e.currentTarget.style.display = 'none';
+        {isEditing ? (
+          <div className="space-y-4 mt-4">
+            <CKEditor
+              editor={ClassicEditor}
+              data={localStepText}
+              config={{ 
+                toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', '|', 'undo', 'redo'],
+              }}
+              onChange={(event, editor) => {
+                const data = editor.getData();
+                setLocalStepText(data);
               }}
             />
+            
+            <div>
+              {step.imageUrl ? (
+                <div className="space-y-3 mt-4">
+                  <img
+                    src={step.imageUrl}
+                    alt={`Screenshot at ${step.timestamp}`}
+                    className="max-w-full max-h-[300px] rounded-md border border-gray-200"
+                  />
+                  <div className="flex gap-2 flex-wrap">
+                    <button 
+                      onClick={onUploadImage} 
+                      className="btn-secondary flex items-center gap-2"
+                    >
+                      <Upload size={16} />
+                      Change Image
+                    </button>
+                    <button
+                      onClick={() => {
+                        const fullImageUrl = step.imageUrl!.startsWith('http') 
+                          ? step.imageUrl 
+                          : `${API_BASE_URL}${step.imageUrl}`;
+                        onAnnotate(fullImageUrl);
+                      }}
+                      className="btn-primary flex items-center gap-2"
+                    >
+                      <Edit size={16} />
+                      Annotate Image
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button 
+                  onClick={onUploadImage}
+                  className="btn-secondary flex items-center gap-2 mt-3"
+                >
+                  <Upload size={16} />
+                  Upload Image
+                </button>
+              )}
+            </div>
+            
+            <div className="flex justify-end gap-3 mt-4">
+              <button 
+                onClick={onCancel} 
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => onSave({ ...step, text: localStepText })} 
+                className="btn-primary flex items-center gap-2"
+              >
+                <Save size={16} />
+                Save Changes
+              </button>
+            </div>
           </div>
+        ) : (
+          <>
+            <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: step.text }} />
+            
+            {step.imageUrl && (
+              <div className="mt-4">
+                <img
+                  src={step.imageUrl}
+                  alt={`Screenshot at ${step.timestamp}`}
+                  className="max-w-full rounded-md border border-gray-200 hover:border-primary transition-colors cursor-pointer"
+                  onClick={() => onImageClick(step.imageUrl!, `Screenshot at ${step.timestamp}`)}
+                  onError={(e) => {
+                    console.error('Image failed to load:', step.imageUrl);
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -133,6 +233,12 @@ const StepItem: React.FC<StepItemProps> = ({
 const DocumentationViewer: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Get edit mode from URL query parameter
+  const queryParams = new URLSearchParams(location.search);
+  const editModeFromUrl = queryParams.get('edit') === 'true';
+  
   const [doc, setDoc] = useState<Documentation | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -145,7 +251,20 @@ const DocumentationViewer: React.FC = () => {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxAlt, setLightboxAlt] = useState<string>('');
   const [imageToAnnotate, setImageToAnnotate] = useState<string | null>(null);
+  
+  // Overview editing
+  const [editingOverview, setEditingOverview] = useState(false);
+  const [overviewText, setOverviewText] = useState<string>('');
+  const [documentTitle, setDocumentTitle] = useState<string>('');
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Set edit mode initially if specified in URL
+  useEffect(() => {
+    if (editModeFromUrl) {
+      setEditMode(true);
+    }
+  }, [editModeFromUrl]);
 
   useEffect(() => {
     const loadDocument = async () => {
@@ -157,6 +276,11 @@ const DocumentationViewer: React.FC = () => {
         if (!response.ok) throw new Error(`Failed to load document: ${response.statusText}`);
         const data = await response.json();
         setDoc(data);
+        setDocumentTitle(data.title || 'Untitled Document');
+        
+        // Extract overview text
+        setOverviewText('This documentation was automatically generated from a video recording with voice narration.');
+        
         if (data.steps && Array.isArray(data.steps)) {
           setSteps(data.steps.map((step: Step, index: number) => ({
             ...step,
@@ -208,28 +332,26 @@ const DocumentationViewer: React.FC = () => {
         created_at: step.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString()
       }));
+      
       const requestBody = { segments: updatedSegments };
-      console.log('[DEBUG] Sending request to finalize-segments with:', JSON.stringify(requestBody, null, 2));
       const response = await fetch(`${API_BASE_URL}/api/docs/${id}/finalize-segments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
       });
+      
       if (!response.ok) {
         const responseText = await response.text();
-        console.error('[DEBUG] API response error:', responseText);
         throw new Error(`Failed to save step: ${responseText}`);
       }
-      const docResponse = await fetch(`${API_BASE_URL}/api/docs/${id}`);
-      if (!docResponse.ok) throw new Error('Failed to refresh document');
-      const data = await docResponse.json();
-      if (data.steps && Array.isArray(data.steps)) {
-        setSteps(data.steps.map((step: Step, index: number) => ({
-          ...step,
-          order: step.order || index,
-          original_start_time: step.original_start_time || 0
-        })));
-      }
+      
+      // Update local state with the changes
+      setSteps(steps.map(step => 
+        step.id === editingStep.id 
+          ? { ...step, text: editingStep.text, imageUrl: editingStep.imageUrl } 
+          : step
+      ));
+      
       setEditingStep(null);
     } catch (err) {
       console.error('Error saving step:', err);
@@ -390,11 +512,10 @@ const DocumentationViewer: React.FC = () => {
     }
   };
 
-  const handleImageUpload = (index: number) => {
-    setEditingStep(sortedSteps[index]);
-    setTimeout(() => {
-      fileInputRef.current?.click();
-    }, 100);
+  const handleImageUpload = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -445,98 +566,75 @@ const DocumentationViewer: React.FC = () => {
     }
   };
 
-const handleAnnotationSave = async (dataUrl: string) => {
- if (!id || !editingStep) return;
-
- try {
-   console.log("Processing annotated image, dataUrl length:", dataUrl.length);
-
-   // Convert dataUrl to Blob
-   const response = await fetch(dataUrl);
-   const blob = await response.blob();
-
-   // Prepare FormData
-   const formData = new FormData();
-   formData.append("screenshot", blob, `annotation_${Date.now()}.png`);
-
-   const responseUpload = await fetch(`${API_BASE_URL}/api/docs/${id}/screenshots`, {
-     method: "POST",
-     body: formData,
-   });
-
-   if (!responseUpload.ok) {
-     throw new Error("Failed to upload annotated image");
-   }
-
-   const data = await responseUpload.json();
-   console.log("Annotation upload successful:", data);
-
-   // Update the step with the new image URL
-   const updatedStep = {
-     ...editingStep,
-     imageUrl: data.imageUrl,
-   };
-
-   // Update all steps, preserving existing data
-   const updatedSegments = steps.map((step) => ({
-     id: step.id,
-     text: step.id === editingStep.id ? updatedStep.text || "" : step.text || "",
-     start_time: (step.original_start_time || 0).toString(),
-     end_time: ((step.original_start_time || 0) + 10).toString(),
-     screenshot_path: step.id === editingStep.id ? updatedStep.imageUrl : step.imageUrl || null,
-     job_id: id,
-     needs_review: true,
-     reviewed_at: step.reviewed_at || null,
-     order: step.order,
-     created_at: step.created_at || new Date().toISOString(),
-     updated_at: new Date().toISOString(),
-   }));
-
-   const requestBody = { segments: updatedSegments };
-
-   const saveResponse = await fetch(`${API_BASE_URL}/api/docs/${id}/finalize-segments`, {
-     method: "POST",
-     headers: { "Content-Type": "application/json" },
-     body: JSON.stringify(requestBody),
-   });
-
-   if (!saveResponse.ok) {
-     const errorText = await saveResponse.text();
-     console.error("[DEBUG] Failed to save annotated image update:", errorText);
-     throw new Error(`Failed to save annotated image: ${errorText}`);
-   }
-
-   // Update local state
-   const newSteps = steps.map((step) => (step.id === editingStep.id ? updatedStep : step));
-   setSteps(newSteps);
-   
-   // Crucially, update the editingStep to reflect the new image
-   setEditingStep({
-     ...updatedStep,
-     imageUrl: data.imageUrl.startsWith('http') ? data.imageUrl : `${API_BASE_URL}${data.imageUrl}`
-   });
-   
-   setImageToAnnotate(null);
-   setError(null);
- } catch (err) {
-   console.error("Error saving annotated image:", err);
-   setError(err instanceof Error ? err.message : "Failed to save annotated image");
- }
-};
+  const handleAnnotationSave = async (dataUrl: string) => {
+    if (!id || !editingStep) return;
+    try {
+      console.log("Processing annotated image, dataUrl length:", dataUrl.length);
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const formData = new FormData();
+      formData.append("screenshot", blob, `annotation_${Date.now()}.png`);
+      const responseUpload = await fetch(`${API_BASE_URL}/api/docs/${id}/screenshots`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!responseUpload.ok) {
+        throw new Error("Failed to upload annotated image");
+      }
+      const data = await responseUpload.json();
+      console.log("Annotation upload successful:", data);
+      const updatedStep = {
+        ...editingStep,
+        imageUrl: data.imageUrl,
+      };
+      const updatedSegments = steps.map((step) => ({
+        id: step.id,
+        text: step.id === editingStep.id ? updatedStep.text || "" : step.text || "",
+        start_time: (step.original_start_time || 0).toString(),
+        end_time: ((step.original_start_time || 0) + 10).toString(),
+        screenshot_path: step.id === editingStep.id ? updatedStep.imageUrl : step.imageUrl || null,
+        job_id: id,
+        needs_review: true,
+        reviewed_at: step.reviewed_at || null,
+        order: step.order,
+        created_at: step.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }));
+      const requestBody = { segments: updatedSegments };
+      const saveResponse = await fetch(`${API_BASE_URL}/api/docs/${id}/finalize-segments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+      if (!saveResponse.ok) {
+        const errorText = await saveResponse.text();
+        console.error("[DEBUG] Failed to save annotated image update:", errorText);
+        throw new Error(`Failed to save annotated image: ${errorText}`);
+      }
+      const newSteps = steps.map((step) => (step.id === editingStep.id ? updatedStep : step));
+      setSteps(newSteps);
+      setEditingStep({
+        ...updatedStep,
+        imageUrl: data.imageUrl.startsWith('http') ? data.imageUrl : `${API_BASE_URL}${data.imageUrl}`
+      });
+      setImageToAnnotate(null);
+      setError(null);
+    } catch (err) {
+      console.error("Error saving annotated image:", err);
+      setError(err instanceof Error ? err.message : "Failed to save annotated image");
+    }
+  };
 
   const handleExport = async (format: 'markdown' | 'html' | 'pdf') => {
     if (!id) return;
     try {
       setExportLoading(true);
-      
       if (format === 'pdf') {
-        // For PDF, create a printable HTML version instead
         alert("PDF export is currently unavailable. You can use your browser's print feature to save as PDF instead.");
         setExportLoading(false);
         setShowExportMenu(false);
         return;
       }
-      
       const response = await fetch(`${API_BASE_URL}/api/docs/${id}/export?format=${format}`);
       if (!response.ok) {
         if (response.status === 501) {
@@ -583,11 +681,128 @@ const handleAnnotationSave = async (dataUrl: string) => {
     setEditMode(false);
   };
 
+  // Handle saving document title and overview
+  const handleSaveOverview = async () => {
+    if (!id || !doc) return;
+    try {
+      setSaveLoading(true);
+      
+      // Generate new markdown with updated title and overview
+      let updatedContent = doc.content;
+      
+      // Update title in frontmatter
+      const titleRegex = /(title:\s*)[^\n]+/;
+      updatedContent = updatedContent.replace(titleRegex, `$1${documentTitle}`);
+      
+      // Update overview content
+      const overviewRegex = /(## Overview\s+)([^#]+)/;
+      updatedContent = updatedContent.replace(overviewRegex, `$1${overviewText}\n\n`);
+      
+      const response = await fetch(`${API_BASE_URL}/api/docs/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          content: updatedContent,
+          title: documentTitle 
+        }),
+      });
+      
+      if (!response.ok) throw new Error('Failed to save overview');
+      
+      // Update local doc state
+      setDoc({
+        ...doc,
+        title: documentTitle,
+        content: updatedContent
+      });
+      
+      setEditingOverview(false);
+    } catch (err) {
+      console.error('Error saving overview:', err);
+      setError(err instanceof Error ? err.message : 'Failed to save overview');
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
+  // Render overview section
+  const renderOverviewSection = () => (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
+      <div className="flex justify-between items-start mb-2">
+        <h3 className="text-lg font-semibold text-gray-800">Overview</h3>
+        {editMode && !editingOverview && (
+          <button
+            onClick={() => setEditingOverview(true)}
+            className="p-1.5 text-gray-500 hover:text-primary hover:bg-gray-100 rounded-md transition-colors"
+            title="Edit overview"
+          >
+            <Edit size={16} />
+          </button>
+        )}
+      </div>
+      
+      {editingOverview ? (
+        <div className="space-y-4">
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Document Title
+            </label>
+            <input
+              type="text"
+              value={documentTitle}
+              onChange={(e) => setDocumentTitle(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+              placeholder="Enter document title"
+            />
+          </div>
+          
+          <CKEditor
+            editor={ClassicEditor}
+            data={overviewText}
+            config={{ 
+              toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', '|', 'undo', 'redo'],
+            }}
+            onChange={(event, editor) => {
+              const data = editor.getData();
+              setOverviewText(data);
+            }}
+          />
+          <div className="flex justify-end gap-3">
+            <button 
+              onClick={() => setEditingOverview(false)} 
+              className="btn-secondary"
+            >
+              Cancel
+            </button>
+            <button 
+              onClick={handleSaveOverview} 
+              className="btn-primary flex items-center gap-2" 
+              disabled={saveLoading}
+            >
+              {saveLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  Save
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: overviewText }} />
+      )}
+    </div>
+  );
+
   if (isLoading) {
     return (
       <div className="max-w-6xl mx-auto px-4 py-10">
         <div className="text-center space-y-4">
-          <h1 className="text-2xl font-bold text-gray-800">DocGen</h1>
           <div className="flex justify-center">
             <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary"></div>
           </div>
@@ -600,7 +815,6 @@ const handleAnnotationSave = async (dataUrl: string) => {
   if (error) {
     return (
       <div className="max-w-6xl mx-auto px-4 py-10">
-        <h1 className="text-2xl font-bold text-gray-800 mb-6">DocGen</h1>
         <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-md">
           <div className="flex items-center">
             <XCircle className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" />
@@ -620,7 +834,6 @@ const handleAnnotationSave = async (dataUrl: string) => {
   if (!doc) {
     return (
       <div className="max-w-6xl mx-auto px-4 py-10">
-        <h1 className="text-2xl font-bold text-gray-800 mb-4">DocGen</h1>
         <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-md">
           <p className="text-yellow-700">No documentation found for this ID.</p>
         </div>
@@ -631,9 +844,8 @@ const handleAnnotationSave = async (dataUrl: string) => {
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-800 mb-1">DocGen</h1>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b pb-4">
-          <h2 className="text-xl font-medium text-gray-700">{doc.title}</h2>
+          <h2 className="text-xl font-medium text-gray-700">{documentTitle}</h2>
           <div className="flex items-center gap-2">
             {!editMode ? (
               <>
@@ -711,129 +923,10 @@ const handleAnnotationSave = async (dataUrl: string) => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-        <h3 className="text-lg font-semibold text-gray-800 mb-2">Overview</h3>
-        <p className="text-gray-600">
-          This documentation was automatically generated from a video recording with voice narration.
-        </p>
-      </div>
+      {/* Overview section */}
+      {renderOverviewSection()}
 
-      {editingStep && (
-        <div className="bg-white rounded-lg shadow-md border-2 border-primary p-6 mb-8">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
-            <Edit className="w-5 h-5 mr-2 text-primary" />
-            Edit Step
-          </h3>
-          
-          <div className="space-y-6">
-            <div>
-              {/* Timestamp field hidden since we're using step numbers instead */}
-              <input
-                type="hidden"
-                value={editingStep.timestamp}
-                onChange={(e) => setEditingStep({ ...editingStep, timestamp: e.target.value })}
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Content
-              </label>
-              <CKEditor
-                editor={ClassicEditor}
-                data={editingStep.text}
-                config={{ 
-                  toolbar: ['heading', '|', 'bold', 'italic', 'link', 'bulletedList', 'numberedList', '|', 'undo', 'redo'],
-                }}
-                onChange={(event, editor) => {
-                  const data = editor.getData();
-                  setEditingStep({ ...editingStep, text: data });
-                }}
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Screenshot
-              </label>
-              
-              {editingStep.imageUrl ? (
-                <div className="space-y-3">
-                  <img
-                    src={editingStep.imageUrl.startsWith('http') ? editingStep.imageUrl : `${API_BASE_URL}${editingStep.imageUrl}`}
-                    alt={`Screenshot at ${editingStep.timestamp}`}
-                    className="max-w-full max-h-[300px] rounded-md border border-gray-200"
-                  />
-                  <div className="flex gap-2 flex-wrap">
-                    <button 
-                      onClick={() => fileInputRef.current?.click()} 
-                      className="btn-secondary flex items-center gap-2"
-                    >
-                      <Upload size={16} />
-                      Change Image
-                    </button>
-                    <button
-                      onClick={() => {
-                        const fullImageUrl = editingStep.imageUrl.startsWith('http') 
-                          ? editingStep.imageUrl 
-                          : `${API_BASE_URL}${editingStep.imageUrl}`;
-                        setImageToAnnotate(fullImageUrl);
-                      }}
-                      className="btn-primary flex items-center gap-2"
-                    >
-                      <Edit size={16} />
-                      Annotate Image
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button 
-                  onClick={() => fileInputRef.current?.click()} 
-                  className="btn-secondary flex items-center gap-2"
-                >
-                  <Upload size={16} />
-                  Upload Image
-                </button>
-              )}
-              
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                style={{ display: 'none' }} 
-                accept="image/*" 
-                onChange={handleFileChange} 
-              />
-            </div>
-          </div>
-          
-          <div className="flex justify-end gap-3 mt-6">
-            <button 
-              onClick={handleCancelEdit} 
-              className="btn-secondary"
-            >
-              Cancel
-            </button>
-            <button 
-              onClick={handleSaveStep} 
-              className="btn-primary flex items-center gap-2" 
-              disabled={saveLoading}
-            >
-              {saveLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save size={16} />
-                  Save Changes
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-
+      {/* Steps section */}
       <div className="mb-8">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">Steps</h3>
         
@@ -850,6 +943,13 @@ const handleAnnotationSave = async (dataUrl: string) => {
                 onEdit={() => handleEditStep(step)}
                 onDelete={() => deleteStep(step.id)}
                 onImageClick={handleImageClick}
+                onSave={(updatedStep) => {
+                  setEditingStep(updatedStep);
+                  handleSaveStep();
+                }}
+                onCancel={handleCancelEdit}
+                onAnnotate={setImageToAnnotate}
+                onUploadImage={handleImageUpload}
               />
             ))}
             
@@ -922,6 +1022,8 @@ const handleAnnotationSave = async (dataUrl: string) => {
           onCancel={() => setImageToAnnotate(null)} 
         />
       )}
+
+      <input type="file" ref={fileInputRef} style={{ display: 'none' }} accept="image/*" onChange={handleFileChange} />
     </div>
   );
 };
