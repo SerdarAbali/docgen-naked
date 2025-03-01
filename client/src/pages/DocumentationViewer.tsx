@@ -7,15 +7,17 @@ import { CKEditor } from '@ckeditor/ckeditor5-react';
 import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
 import {
   Edit, Save, X, Trash2, Plus, Upload, FileText, File, MoreVertical,
-  Download, Code, Clock, CheckCircle, XCircle, Image, ArrowUp, ArrowDown
-} from 'lucide-react';
+  Download, Code, Clock, CheckCircle, XCircle, Image, ArrowUp, ArrowDown, Folder
+} from 'lucide-react'; // Removed FilePdf
 import ImageAnnotator from '../components/ImageAnnotator';
+import CategorySelector from '../components/CategorySelector';
 import { v4 as uuidv4 } from 'uuid';
 
 const API_BASE_URL = 'http://10.0.0.59:3001';
 
 interface Step {
   id: string;
+  title?: string;
   timestamp: string;
   text: string;
   imageUrl: string | null;
@@ -29,6 +31,10 @@ interface Documentation {
   title: string;
   content: string;
   steps: Step[];
+  category?: {
+    id: string;
+    name: string;
+  } | null;
 }
 
 interface StepItemProps {
@@ -84,10 +90,12 @@ const StepItem: React.FC<StepItemProps> = ({
 
   // Local state for step editing
   const [localStepText, setLocalStepText] = useState(step.text);
+  const [localStepTitle, setLocalStepTitle] = useState(step.title || '');
   
   useEffect(() => {
     setLocalStepText(step.text);
-  }, [step.text, isEditing]);
+    setLocalStepTitle(step.title || '');
+  }, [step.text, step.title, isEditing]);
 
   return (
     <div
@@ -127,14 +135,27 @@ const StepItem: React.FC<StepItemProps> = ({
           </div>
         )}
         
-        <div className="mb-2 flex items-center">
-          <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-primary/10 text-primary">
-            Step {index + 1}
-          </span>
-        </div>
-        
         {isEditing ? (
           <div className="space-y-4 mt-4">
+            <div className="mb-2 flex items-center">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-primary/10 text-primary">
+                Step {index + 1}
+              </span>
+            </div>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Step Title (optional)
+              </label>
+              <input
+                type="text"
+                value={localStepTitle}
+                onChange={(e) => setLocalStepTitle(e.target.value)}
+                placeholder="Enter step title"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+
             <CKEditor
               editor={ClassicEditor}
               data={localStepText}
@@ -161,7 +182,7 @@ const StepItem: React.FC<StepItemProps> = ({
                       className="btn-secondary flex items-center gap-2"
                     >
                       <Upload size={16} />
-                      Change Image
+                      Change Screenshot
                     </button>
                     <button
                       onClick={() => {
@@ -173,7 +194,7 @@ const StepItem: React.FC<StepItemProps> = ({
                       className="btn-primary flex items-center gap-2"
                     >
                       <Edit size={16} />
-                      Annotate Image
+                      Annotate
                     </button>
                   </div>
                 </div>
@@ -183,7 +204,7 @@ const StepItem: React.FC<StepItemProps> = ({
                   className="btn-secondary flex items-center gap-2 mt-3"
                 >
                   <Upload size={16} />
-                  Upload Image
+                  Upload Screenshot
                 </button>
               )}
             </div>
@@ -196,7 +217,7 @@ const StepItem: React.FC<StepItemProps> = ({
                 Cancel
               </button>
               <button 
-                onClick={() => onSave({ ...step, text: localStepText })} 
+                onClick={() => onSave({ ...step, text: localStepText, title: localStepTitle || undefined })} 
                 className="btn-primary flex items-center gap-2"
               >
                 <Save size={16} />
@@ -205,24 +226,41 @@ const StepItem: React.FC<StepItemProps> = ({
             </div>
           </div>
         ) : (
-          <>
-            <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: step.text }} />
-            
-            {step.imageUrl && (
-              <div className="mt-4">
-                <img
-                  src={step.imageUrl}
-                  alt={`Screenshot at ${step.timestamp}`}
-                  className="max-w-full rounded-md border border-gray-200 hover:border-primary transition-colors cursor-pointer"
-                  onClick={() => onImageClick(step.imageUrl!, `Screenshot at ${step.timestamp}`)}
-                  onError={(e) => {
-                    console.error('Image failed to load:', step.imageUrl);
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
+          <div>
+            {/* Two column layout in view mode - only when NOT in edit mode */}
+            <div className="flex flex-col md:flex-row md:gap-6">
+              {/* Left column for text content */}
+              <div className="md:w-1/2">
+                <div className="mb-2 flex items-center">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-primary/10 text-primary">
+                    Step {index + 1}
+                  </span>
+                  {step.title && (
+                    <span className="ml-2 font-medium text-gray-700">{step.title}</span>
+                  )}
+                </div>
+                
+                {/* Step content/description */}
+                <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: step.text }} />
               </div>
-            )}
-          </>
+              
+              {/* Right column for image - only shown if there's an image */}
+              <div className={`mt-4 md:mt-0 md:w-1/2 ${!step.imageUrl ? 'hidden' : ''}`}>
+                {step.imageUrl && (
+                  <img
+                    src={step.imageUrl}
+                    alt={`Screenshot at ${step.timestamp}`}
+                    className="w-full rounded-md border border-gray-200 hover:border-primary transition-colors cursor-pointer max-h-64 object-contain"
+                    onClick={() => onImageClick(step.imageUrl!, `Screenshot at ${step.timestamp}`)}
+                    onError={(e) => {
+                      console.error('Image failed to load:', step.imageUrl);
+                      e.currentTarget.style.display = 'none';
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -257,6 +295,9 @@ const DocumentationViewer: React.FC = () => {
   const [overviewText, setOverviewText] = useState<string>('');
   const [documentTitle, setDocumentTitle] = useState<string>('');
   
+  // Category
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Set edit mode initially if specified in URL
@@ -277,6 +318,7 @@ const DocumentationViewer: React.FC = () => {
         const data = await response.json();
         setDoc(data);
         setDocumentTitle(data.title || 'Untitled Document');
+        setCategoryId(data.category?.id || null);
         
         // Extract overview text
         setOverviewText('This documentation was automatically generated from a video recording with voice narration.');
@@ -321,6 +363,7 @@ const DocumentationViewer: React.FC = () => {
       setSaveLoading(true);
       const updatedSegments = steps.map(step => ({
         id: step.id,
+        title: step.id === editingStep.id ? editingStep.title || null : step.title || null,
         text: step.id === editingStep.id ? editingStep.text || '' : step.text || '',
         start_time: (step.original_start_time || 0).toString() || '0',
         end_time: ((step.original_start_time || 0) + 10).toString(),
@@ -348,7 +391,7 @@ const DocumentationViewer: React.FC = () => {
       // Update local state with the changes
       setSteps(steps.map(step => 
         step.id === editingStep.id 
-          ? { ...step, text: editingStep.text, imageUrl: editingStep.imageUrl } 
+          ? { ...step, text: editingStep.text, imageUrl: editingStep.imageUrl, title: editingStep.title } 
           : step
       ));
       
@@ -414,6 +457,7 @@ const DocumentationViewer: React.FC = () => {
       const allSegments = [
         ...steps.map(step => ({
           text: step.text || '',
+          title: step.title || null,
           start_time: (step.original_start_time || 0).toString(),
           end_time: ((step.original_start_time || 0) + 10).toString(),
           screenshot_path: step.imageUrl || null,
@@ -427,6 +471,7 @@ const DocumentationViewer: React.FC = () => {
         })),
         {
           text: newStep.text,
+          title: newStep.title || null,
           start_time: (newStep.original_start_time || 0).toString(),
           end_time: ((newStep.original_start_time || 0) + 10).toString(),
           screenshot_path: newStep.imageUrl || null,
@@ -473,6 +518,7 @@ const DocumentationViewer: React.FC = () => {
       setSteps(remainingSteps);
       const segmentsForUpdate = remainingSteps.map(step => ({
         text: step.text || '',
+        title: step.title || null,
         start_time: (step.original_start_time || 0).toString(),
         end_time: ((step.original_start_time || 0) + 10).toString(),
         screenshot_path: step.imageUrl || null,
@@ -535,6 +581,7 @@ const DocumentationViewer: React.FC = () => {
       setEditingStep(updatedStep);
       const updatedSegments = steps.map(step => ({
         id: step.id,
+        title: step.id === editingStep.id ? updatedStep.title || null : step.title || null,
         text: step.id === editingStep.id ? updatedStep.text || '' : step.text || '',
         start_time: (step.original_start_time || 0).toString(),
         end_time: ((step.original_start_time || 0) + 10).toString(),
@@ -589,6 +636,7 @@ const DocumentationViewer: React.FC = () => {
       };
       const updatedSegments = steps.map((step) => ({
         id: step.id,
+        title: step.id === editingStep.id ? updatedStep.title || null : step.title || null,
         text: step.id === editingStep.id ? updatedStep.text || "" : step.text || "",
         start_time: (step.original_start_time || 0).toString(),
         end_time: ((step.original_start_time || 0) + 10).toString(),
@@ -629,12 +677,6 @@ const DocumentationViewer: React.FC = () => {
     if (!id) return;
     try {
       setExportLoading(true);
-      if (format === 'pdf') {
-        alert("PDF export is currently unavailable. You can use your browser's print feature to save as PDF instead.");
-        setExportLoading(false);
-        setShowExportMenu(false);
-        return;
-      }
       const response = await fetch(`${API_BASE_URL}/api/docs/${id}/export?format=${format}`);
       if (!response.ok) {
         if (response.status === 501) {
@@ -679,6 +721,39 @@ const DocumentationViewer: React.FC = () => {
   const exitEditMode = () => {
     setImageToAnnotate(null);
     setEditMode(false);
+  };
+
+  // Handle category change
+  const handleCategoryChange = async (newCategoryId: string | null) => {
+    if (!id) return;
+    try {
+      setSaveLoading(true);
+      
+      const response = await fetch(`${API_BASE_URL}/api/docs/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          content: doc?.content || '',
+          categoryId: newCategoryId
+        }),
+      });
+      
+      if (!response.ok) throw new Error('Failed to update category');
+      
+      const result = await response.json();
+      if (doc) {
+        setDoc({
+          ...doc,
+          category: result.document.category
+        });
+      }
+      setCategoryId(newCategoryId);
+      setSaveLoading(false);
+    } catch (err) {
+      console.error('Error updating category:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update category');
+      setSaveLoading(false);
+    }
   };
 
   // Handle saving document title and overview
@@ -728,7 +803,7 @@ const DocumentationViewer: React.FC = () => {
   // Render overview section
   const renderOverviewSection = () => (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
-      <div className="flex justify-between items-start mb-2">
+      <div className="flex justify-between items-start mb-4">
         <h3 className="text-lg font-semibold text-gray-800">Overview</h3>
         {editMode && !editingOverview && (
           <button
@@ -740,6 +815,19 @@ const DocumentationViewer: React.FC = () => {
           </button>
         )}
       </div>
+      
+      {editMode && (
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Category
+          </label>
+          <CategorySelector 
+            selectedCategoryId={categoryId}
+            onChange={handleCategoryChange}
+            className="w-full max-w-xs"
+          />
+        </div>
+      )}
       
       {editingOverview ? (
         <div className="space-y-4">
@@ -794,7 +882,17 @@ const DocumentationViewer: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: overviewText }} />
+        <>
+          {doc?.category && (
+            <div className="mb-3">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                <Folder size={12} className="mr-1" />
+                {doc.category.name}
+              </span>
+            </div>
+          )}
+          <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: overviewText }} />
+        </>
       )}
     </div>
   );
@@ -885,7 +983,7 @@ const DocumentationViewer: React.FC = () => {
                         onClick={() => handleExport('pdf')} 
                         className="flex items-center w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
                       >
-                        <File size={16} className="mr-2" />
+                        <FilePdf size={16} className="mr-2" />
                         PDF
                       </button>
                     </div>

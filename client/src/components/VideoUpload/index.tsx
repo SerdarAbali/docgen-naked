@@ -2,6 +2,7 @@
 import React, { useState, useCallback } from 'react';
 import { Upload, Check, X, Film, Clock, Loader } from 'lucide-react';
 import SegmentReview from '../SegmentReview';
+import CategorySelector from '../CategorySelector';
 
 interface UploadStatus {
   progress: number;
@@ -14,6 +15,7 @@ export default function VideoUpload(): JSX.Element {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
+  const [categoryId, setCategoryId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
@@ -183,6 +185,11 @@ export default function VideoUpload(): JSX.Element {
       const documentTitle = title.trim() || file.name.replace(/\.[^/.]+$/, '');
       formData.append('title', documentTitle);
 
+      // Add category ID if selected
+      if (categoryId) {
+        formData.append('categoryId', categoryId);
+      }
+
       console.log('Starting upload...');
       const response = await fetch('http://10.0.0.59:3001/api/upload', {
         method: 'POST',
@@ -213,7 +220,7 @@ export default function VideoUpload(): JSX.Element {
         message: error instanceof Error ? error.message : 'Upload failed'
       });
     }
-  }, [file, title]);
+  }, [file, title, categoryId]);
 
   const handleReviewComplete = () => {
     if (jobId) {
@@ -254,7 +261,7 @@ export default function VideoUpload(): JSX.Element {
   return (
     <div className="max-w-4xl mx-auto py-10 px-4">
       <div className="text-center mb-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">DocGen</h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">documentit</h1>
         <p className="text-gray-600">Upload a video to automatically generate documentation</p>
       </div>
       
@@ -285,17 +292,30 @@ export default function VideoUpload(): JSX.Element {
             <Upload className="w-10 h-10" />
           </div>
           
-          <div className="w-full max-w-md">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Documentation Title
-            </label>
-            <input 
-              type="text"
-              placeholder="Enter documentation title (optional)"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="form-input"
-            />
+          <div className="w-full max-w-md space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Documentation Title
+              </label>
+              <input 
+                type="text"
+                placeholder="Enter documentation title (optional)"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="form-input w-full"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Category
+              </label>
+              <CategorySelector 
+                selectedCategoryId={categoryId}
+                onChange={setCategoryId}
+                className="w-full"
+              />
+            </div>
           </div>
           
           <div className="text-center">

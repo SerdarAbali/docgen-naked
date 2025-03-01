@@ -6,7 +6,14 @@ import SegmentReview from './components/SegmentReview';
 import DocumentationViewer from './pages/DocumentationViewer';
 import DocEditor from './components/DocEditor';
 import DocumentList from './pages/DocumentList';
-import Navbar from './components/Navbar'; // Fixed path - no /index
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
+
+// Import the new page components
+import Documentation from './pages/Documentation';
+import ApiReference from './pages/ApiReference';
+import Tutorials from './pages/Tutorials';
+import HelpCenter from './pages/HelpCenter';
 
 // Wrapper component that adds a key to force re-rendering
 const KeyedDocViewer = () => {
@@ -18,9 +25,9 @@ const KeyedDocViewer = () => {
 const App: React.FC = () => {
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gray-50 flex flex-col">
         <Navbar />
-        <main className="py-6">
+        <main className="py-6 flex-grow">
           <Routes>
             <Route path="/" element={<VideoUpload />} />
             <Route 
@@ -40,8 +47,15 @@ const App: React.FC = () => {
             />
             <Route path="/documents" element={<DocumentList />} />
             <Route path="/documentation/generated/:id" element={<KeyedDocViewer />} />
+            
+            {/* Add new routes for footer links */}
+            <Route path="/documentation" element={<Documentation />} />
+            <Route path="/api-reference" element={<ApiReference />} />
+            <Route path="/tutorials" element={<Tutorials />} />
+            <Route path="/help-center" element={<HelpCenter />} />
           </Routes>
         </main>
+        <Footer />
       </div>
     </BrowserRouter>
   );
