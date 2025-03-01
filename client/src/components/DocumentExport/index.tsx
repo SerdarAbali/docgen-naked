@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { Download, FileText, FileCode, FilePdf } from 'lucide-react';
+import config from '../../config';
 
 interface DocumentExportProps {
   documentId: string;
@@ -17,7 +18,7 @@ const DocumentExport: React.FC<DocumentExportProps> = ({ documentId, title }) =>
     setExportError(null);
     
     try {
-      const response = await fetch(`http://10.0.0.59:3001/api/docs/${documentId}/export?format=${format}`, {
+      const response = await fetch(`${config.apiUrl}/api/docs/${documentId}/export?format=${format}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

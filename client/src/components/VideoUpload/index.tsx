@@ -3,6 +3,8 @@ import React, { useState, useCallback } from 'react';
 import { Upload, Check, X, Film, Clock, Loader } from 'lucide-react';
 import SegmentReview from '../SegmentReview';
 import CategorySelector from '../CategorySelector';
+import config from '../../config';
+
 
 interface UploadStatus {
   progress: number;
@@ -70,7 +72,7 @@ export default function VideoUpload(): JSX.Element {
     try {
       console.log('Checking status for:', currentJobId);
       const statusResponse = await fetch(
-        `http://10.0.0.59:3001/api/status/${currentJobId}`
+        `${config.apiUrl}/api/status/${currentJobId}`
       );
       
       if (!statusResponse.ok) {
@@ -129,7 +131,7 @@ export default function VideoUpload(): JSX.Element {
           // Add a check for document availability before redirect
           const checkDocumentAndRedirect = async () => {
             try {
-              const docResponse = await fetch(`http://10.0.0.59:3001/api/docs/${currentJobId}`);
+              const docResponse = await fetch(`${config.apiUrl}/api/docs/${currentJobId}`);
               if (docResponse.ok) {
                 window.location.href = `/documentation/generated/${currentJobId}`;
               } else {
@@ -191,7 +193,7 @@ export default function VideoUpload(): JSX.Element {
       }
 
       console.log('Starting upload...');
-      const response = await fetch('http://10.0.0.59:3001/api/upload', {
+      const response = await fetch(`${config.apiUrl}/api/upload`, {
         method: 'POST',
         body: formData
       });

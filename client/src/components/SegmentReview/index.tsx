@@ -1,6 +1,7 @@
 // client/src/components/SegmentReview/index.tsx
 import React, { useState, useEffect } from 'react';
 import { Check, X, Play, Merge, Loader, Clock, Edit } from 'lucide-react';
+import config from '../../config';
 
 interface Segment {
   id: string;
@@ -32,18 +33,18 @@ const SegmentReview: React.FC<SegmentReviewProps> = ({ jobId, onComplete }) => {
         console.log('Fetching segments for job ID:', jobId);
         
         // Fetch segments
-        const segResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/segments`);
+        const segResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}/segments`);
         if (!segResponse.ok) throw new Error(`Failed to fetch segments: ${segResponse.status}`);
         const segData = await segResponse.json();
         setSegments(segData);
         console.log('Segments loaded:', segData.length);
 
         // Fetch video URL
-        const videoResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/videos`);
+        const videoResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}/videos`);
         if (!videoResponse.ok) throw new Error(`Failed to fetch video: ${videoResponse.status}`);
         const videoData = await videoResponse.json();
-        setVideoUrl(`http://10.0.0.59:3001/video/${videoData.originalVideo.id}`);
-        console.log('Video URL set:', `http://10.0.0.59:3001/video/${videoData.originalVideo.id}`);
+        setVideoUrl(`${config.apiUrl}/video/${videoData.originalVideo.id}`);
+        console.log('Video URL set:', `${config.apiUrl}/video/${videoData.originalVideo.id}`);
       } catch (err) {
         console.error('Error fetching data:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch data');
@@ -109,7 +110,7 @@ const SegmentReview: React.FC<SegmentReviewProps> = ({ jobId, onComplete }) => {
   const checkProcessingStatus = async () => {
     try {
       console.log('Checking processing status for job:', jobId);
-      const response = await fetch(`http://10.0.0.59:3001/api/status/${jobId}`);
+      const response = await fetch(`${config.apiUrl}/api/status/${jobId}`);
       
       if (!response.ok) {
         console.error('Status check failed:', response.status);
@@ -146,7 +147,7 @@ const SegmentReview: React.FC<SegmentReviewProps> = ({ jobId, onComplete }) => {
       console.log('Finalizing segments for job:', jobId);
       console.log('Sending segments to backend:', segments);
 
-      const response = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/finalize-segments`, {
+      const response = await fetch(`${config.apiUrl}/api/docs/${jobId}/finalize-segments`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

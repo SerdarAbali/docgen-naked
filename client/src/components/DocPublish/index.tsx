@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Globe, GitHub, Book } from 'lucide-react';
+import config from '../../config';
 
 interface DocPublishProps {
   documentId: string;
@@ -25,7 +26,7 @@ const DocPublish: React.FC<DocPublishProps> = ({ documentId, title }) => {
     setPublishSuccess(null);
     
     try {
-      const response = await fetch(`http://10.0.0.59:3001/api/docs/${documentId}/publish/github`, {
+      const response = await fetch(`${config.apiUrl}/api/docs/${documentId}/publish/github`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

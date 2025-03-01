@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Video, Upload, X } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid'; // Import UUID for generating real IDs
+import config from '../../config';
 
 interface VideoInfo {
   id: string;
@@ -62,13 +63,13 @@ const VideoSegmentSelector: React.FC<VideoSegmentSelectorProps> = ({
       setError(null);
 
       const cleanDocId = documentId.replace(/\/$/, '').trim();
-      const jobResponse = await fetch(`http://10.0.0.59:3001/api/docs/id/${cleanDocId}`);
+      const jobResponse = await fetch(`${config.apiUrl}/api/docs/id/${cleanDocId}`);
       if (!jobResponse.ok) throw new Error('Failed to fetch job ID');
       const { jobId: fetchedJobId } = await jobResponse.json();
       console.log('[VideoSelector] Fetched job ID for doc_id:', documentId, '->', fetchedJobId);
       setJobId(fetchedJobId);
 
-      const videoResponse = await fetch(`http://10.0.0.59:3001/api/docs/${fetchedJobId}/videos`);
+      const videoResponse = await fetch(`${config.apiUrl}/api/docs/${fetchedJobId}/videos`);
       if (!videoResponse.ok) throw new Error('Failed to load video info');
       const videoData = await videoResponse.json();
       setVideoInfo(videoData.originalVideo);
@@ -93,7 +94,7 @@ const VideoSegmentSelector: React.FC<VideoSegmentSelectorProps> = ({
       formData.append('title', file.name);
       formData.append('documentId', documentId);
 
-      const response = await fetch('http://10.0.0.59:3001/api/upload', {
+      const response = await fetch(`${config.apiUrl}/api/upload`, {
         method: 'POST',
         body: formData,
       });
@@ -134,7 +135,7 @@ const VideoSegmentSelector: React.FC<VideoSegmentSelectorProps> = ({
       const newStepOriginalStartTime = segmentStart; // Use segmentStart as original_start_time
 
       // Generate screenshot using video-screenshot endpoint
-      const screenshotResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/video-screenshot`, {
+      const screenshotResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}/video-screenshot`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -154,7 +155,7 @@ const VideoSegmentSelector: React.FC<VideoSegmentSelectorProps> = ({
       const imageUrl = screenshotData.imageUrl;
 
       // Save the new step to the backend immediately
-      const segmentsResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/finalize-segments`, {
+      const segmentsResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}/finalize-segments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -239,7 +240,7 @@ const VideoSegmentSelector: React.FC<VideoSegmentSelectorProps> = ({
           <div className="mb-6">
             <video
               ref={videoRef}
-              src={`http://10.0.0.59:3001/video/${videoInfo.id}`}
+              src={`${config.apiUrl}/video/${videoInfo.id}`}
               controls
               style={{ width: '100%', maxHeight: '60vh' }}
             />

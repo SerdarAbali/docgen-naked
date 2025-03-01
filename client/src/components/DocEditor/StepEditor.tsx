@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CKEditor } from '@ckeditor/ckeditor5-react';
 import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
 import ImageAnnotator from '../../components/ImageAnnotator';
+import config from '../../config';
 
 interface Step {
   id?: string;
@@ -44,20 +45,20 @@ const StepEditor: React.FC<StepEditorProps> = ({ documentId, onSave }) => {
         console.log("[DEBUG] Loading document ID:", documentId);
         const cleanDocId = documentId.replace(/\/$/, '').trim();
         
-        const idResponse = await fetch(`http://10.0.0.59:3001/api/docs/id/${cleanDocId}`);
+        const idResponse = await fetch(`${config.apiUrl}/api/docs/id/${cleanDocId}`);
         if (!idResponse.ok) throw new Error('Failed to get job ID');
         const { jobId: fetchedJobId } = await idResponse.json();
         console.log("[DEBUG] Got job ID:", fetchedJobId);
         setJobId(fetchedJobId);
 
-        const docResponse = await fetch(`http://10.0.0.59:3001/api/docs/${fetchedJobId}`);
+        const docResponse = await fetch(`${config.apiUrl}/api/docs/${fetchedJobId}`);
         if (!docResponse.ok) throw new Error('Failed to load document');
         const docData = await docResponse.json();
         
         const titleMatch = docData.content.match(/title:\s*([^\n]+)/);
         if (titleMatch) setDocumentTitle(titleMatch[1].trim());
 
-        const segmentsResponse = await fetch(`http://10.0.0.59:3001/api/docs/${fetchedJobId}/segments`);
+        const segmentsResponse = await fetch(`${config.apiUrl}/api/docs/${fetchedJobId}/segments`);
         if (!segmentsResponse.ok) throw new Error('Failed to load segments');
         const segments = await segmentsResponse.json();
         console.log("[DEBUG] Loaded segments:", segments);
@@ -104,7 +105,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ documentId, onSave }) => {
           screenshot_path: step.imageUrl || null
         }));
 
-        const response = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/finalize-segments`, {
+        const response = await fetch(`${config.apiUrl}/api/docs/${jobId}/finalize-segments`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ segments: segmentsForUpdate }),
@@ -113,7 +114,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ documentId, onSave }) => {
         if (!response.ok) throw new Error('Failed to add new step to database');
 
         // Refresh steps from server to get updated IDs
-        const refreshResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/segments`);
+        const refreshResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}/segments`);
         if (!refreshResponse.ok) throw new Error('Failed to refresh steps');
         const segments = await refreshResponse.json();
         const refreshedSteps = segments.map(segment => ({
@@ -149,7 +150,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ documentId, onSave }) => {
         screenshot_path: step.imageUrl || null
       }));
       
-      const response = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/finalize-segments`, {
+      const response = await fetch(`${config.apiUrl}/api/docs/${jobId}/finalize-segments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ segments: segmentsForUpdate }),
@@ -161,7 +162,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ documentId, onSave }) => {
       setError(`Failed to remove step: ${err instanceof Error ? err.message : 'Unknown error'}`);
       
       try {
-        const refreshResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/segments`);
+        const refreshResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}/segments`);
         if (refreshResponse.ok) {
           const segments = await refreshResponse.json();
           const refreshedSteps = segments.map(segment => ({
@@ -214,7 +215,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ documentId, onSave }) => {
       const formData = new FormData();
       formData.append('screenshot', file);
 
-      const response = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/screenshots`, {
+      const response = await fetch(`${config.apiUrl}/api/docs/${jobId}/screenshots`, {
         method: 'POST',
         body: formData,
       });
@@ -230,7 +231,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ documentId, onSave }) => {
       setSteps(newSteps);
       
       const segmentId = currentStep.id;
-      const updateResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/update-segment-screenshot`, {
+      const updateResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}/update-segment-screenshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ segmentId, screenshotPath: data.imageUrl }),
@@ -264,7 +265,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ documentId, onSave }) => {
       const formData = new FormData();
       formData.append('screenshot', file);
       
-      const response = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/screenshots`, {
+      const response = await fetch(`${config.apiUrl}/api/docs/${jobId}/screenshots`, {
         method: 'POST',
         body: formData,
       });
@@ -280,7 +281,7 @@ const StepEditor: React.FC<StepEditorProps> = ({ documentId, onSave }) => {
       setSteps(newSteps);
       
       const segmentId = currentStep.id;
-      const updateResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/update-segment-screenshot`, {
+      const updateResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}/update-segment-screenshot`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ segmentId, screenshotPath: data.imageUrl }),
@@ -355,7 +356,7 @@ ${steps.map(step => step.text).join(' ')}
       
       console.log("[DEBUG] Updating segments:", segmentsForUpdate);
       
-      const segmentsResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}/finalize-segments`, {
+      const segmentsResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}/finalize-segments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ segments: segmentsForUpdate }),
@@ -366,7 +367,7 @@ ${steps.map(step => step.text).join(' ')}
       console.log("[DEBUG] Segments updated successfully");
 
       const markdown = generateMarkdown();
-      const docResponse = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}`, {
+      const docResponse = await fetch(`${config.apiUrl}/api/docs/${jobId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: markdown }),

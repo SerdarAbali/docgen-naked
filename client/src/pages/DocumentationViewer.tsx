@@ -12,8 +12,9 @@ import {
 import ImageAnnotator from '../components/ImageAnnotator';
 import CategorySelector from '../components/CategorySelector';
 import { v4 as uuidv4 } from 'uuid';
+import config from "../config";
 
-const API_BASE_URL = 'http://10.0.0.59:3001';
+const API_BASE_URL = config.apiUrl;
 
 interface Step {
   id: string;

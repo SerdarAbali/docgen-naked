@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import StepEditor from './StepEditor';
+import config from '../../config';
 
 interface DocEditorProps {
   documentId: string; // Pass doc_id (e.g., '4adbb045-2a2b-4b62-a976-ae5520289b04')
@@ -19,14 +20,14 @@ const DocEditor: React.FC<DocEditorProps> = ({ documentId }) => {
       setError(null);
       try {
         // Fetch job_id
-        const idResponse = await fetch(`http://10.0.0.59:3001/api/docs/id/${documentId.replace(/\/$/, '').trim()}`);
+        const idResponse = await fetch(`${config.apiUrl}/api/docs/id/${documentId.replace(/\/$/, '').trim()}`);
         if (!idResponse.ok) throw new Error(`Failed to fetch job ID: ${idResponse.statusText}`);
         const { jobId: fetchedJobId } = await idResponse.json();
         console.log('[DocEditor] Fetched job ID for doc_id:', documentId, '->', fetchedJobId);
         setJobId(fetchedJobId);
 
         // Fetch full document content for Markdown
-        const docResponse = await fetch(`http://10.0.0.59:3001/api/docs/${fetchedJobId}`);
+        const docResponse = await fetch(`${config.apiUrl}/api/docs/${fetchedJobId}`);
         if (!docResponse.ok) throw new Error(`Failed to load document: ${docResponse.statusText}`);
         const docData = await docResponse.json();
         setContent(docData.content || ''); // Set the Markdown content from the backend

@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Edit, Trash2, Clock, CheckCircle, XCircle, FileText, Search, Trash, Folder, Calendar, ArrowUpDown } from 'lucide-react';
+import config from "../config";
 
 interface Category {
   id: string;
@@ -36,7 +37,7 @@ const DocumentList: React.FC = () => {
       try {
         setIsLoading(true);
         setError(null);
-        const response = await fetch('http://10.0.0.59:3001/api/docs/list');
+        const response = await fetch(`${config.apiUrl}/api/docs/list`)
         if (!response.ok) throw new Error(`Failed to fetch documents: ${response.statusText}`);
         const data = await response.json();
         setDocuments(data);
@@ -53,7 +54,7 @@ const DocumentList: React.FC = () => {
 
   const handleDelete = async (jobId: string) => {
     try {
-      const response = await fetch(`http://10.0.0.59:3001/api/docs/${jobId}`, {
+      const response = await fetch(`${config.apiUrl}/api/docs/${jobId}`, {
         method: 'DELETE',
       });
       
@@ -72,7 +73,7 @@ const DocumentList: React.FC = () => {
     try {
       setError(null);
       const deletePromises = selectedDocs.map(jobId => 
-        fetch(`http://10.0.0.59:3001/api/docs/${jobId}`, {
+        fetch(`${config.apiUrl}/api/docs/${jobId}`, {
           method: 'DELETE',
         })
       );

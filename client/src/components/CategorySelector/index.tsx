@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Folder, Plus, Check, X } from 'lucide-react';
+import config from '../../config';
 
 interface Category {
   id: string;
@@ -32,7 +33,7 @@ const CategorySelector: React.FC<CategorySelectorProps> = ({
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('http://10.0.0.59:3001/api/categories');
+      const response = await fetch(`${config.apiUrl}/api/categories`);
       if (!response.ok) throw new Error('Failed to fetch categories');
       const data = await response.json();
       setCategories(data);
@@ -50,7 +51,7 @@ const CategorySelector: React.FC<CategorySelectorProps> = ({
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch('http://10.0.0.59:3001/api/categories', {
+      const response = await fetch(`${config.apiUrl}/api/categories`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newCategoryName.trim() })
