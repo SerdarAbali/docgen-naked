@@ -10,11 +10,13 @@ import ffmpeg from 'fluent-ffmpeg';
 import { spawn } from 'child_process';
 import { renderToString } from 'react-dom/server';
 import * as puppeteer from 'puppeteer';
+import config from './config';
+import https from 'https';
 
 // Base paths configuration
-const UPLOAD_BASE_DIR = path.join(__dirname, '..', 'uploads');
-const DOCS_DIR = path.join(__dirname, '..', '..', 'docs');
-const STATIC_DIR = path.join(__dirname, '..', '..', 'static');
+const UPLOAD_BASE_DIR = path.join(__dirname, '..', config.uploadsDir);
+const DOCS_DIR = path.join(__dirname, '..', config.docsDir);
+const STATIC_DIR = path.join(__dirname, '..', config.staticDir);
 
 // Configuration for audio processing
 const AUDIO_SAMPLE_RATE = 16000; // 16kHz for Whisper
@@ -139,7 +141,7 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: 'http://10.0.0.59:3000',
+  origin: config.clientUrl,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control', 'Pragma', 'Expires'],
   credentials: true,
@@ -1144,10 +1146,10 @@ app.delete('/api/docs/:jobId', async (req, res) => {
     );
 
     const dirs = {
-      root: path.join(__dirname, '..', 'uploads', jobId),
-      docs: path.join(__dirname, '..', '..', 'docs', 'generated', jobId),
-      img: path.join(__dirname, '..', '..', 'static', 'img', jobId)
-    };
+	  root: path.join(__dirname, '..', config.uploadsDir, jobId),
+	  docs: path.join(__dirname, '..', config.docsDir, 'generated', jobId),
+	  img: path.join(__dirname, '..', config.staticDir, 'img', jobId)
+	};
 
     await Promise.all([
       fs.rm(dirs.root, { recursive: true, force: true }).catch(() => {}),
@@ -1448,7 +1450,7 @@ ${segments.map(seg => seg.text).join(' ')}
           markdown += `${seg.text}\n\n`;
           
           if (seg.screenshot_path) {
-            const fullUrl = `http://10.0.0.59:3001${seg.screenshot_path}`;
+            const fullUrl = `${config.apiUrl}${seg.screenshot_path}`;
             markdown += `![Screenshot at ${timestamp}](${fullUrl})\n\n`;
           }
         });
@@ -1505,7 +1507,7 @@ ${segments.map(seg => seg.text).join(' ')}
       <p>${seg.text}</p>`;
           
           if (seg.screenshot_path) {
-            const fullUrl = `http://10.0.0.59:3001${seg.screenshot_path}`;
+            const fullUrl = `${config.apiUrl}${seg.screenshot_path}`;
             html += `
       <p><img src="${fullUrl}" alt="Screenshot at ${timestamp}"></p>`;
           }
@@ -1567,7 +1569,7 @@ ${segments.map(seg => seg.text).join(' ')}
       <p>${seg.text}</p>`;
           
           if (seg.screenshot_path) {
-            const fullUrl = `http://10.0.0.59:3001${seg.screenshot_path}`;
+            const fullUrl = `${config.apiUrl}${seg.screenshot_path}`;
             html += `
       <p><img src="${fullUrl}" alt="Screenshot at ${timestamp}"></p>`;
           }
@@ -1611,8 +1613,19 @@ ${segments.map(seg => seg.text).join(' ')}
 
 const PORT = Number(process.env.PORT) || 3001;
 
-initDatabase().then(() => {
-  app.listen(PORT, '10.0.0.59', () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+initDatabase().then(async () => { // Make this function async
+  if (process.env.NODE_ENV === 'production' || process.env.USE_HTTPS === 'true') {
+    const certsDir = path.join(__dirname, '..', '..', 'certs');
+    const privateKey = await fs.readFile(path.join(certsDir, '10.0.0.59+2-key.pem'), 'utf8');
+    const certificate = await fs.readFile(path.join(certsDir, '10.0.0.59+2.pem'), 'utf8');
+    const credentials = { key: privateKey, cert: certificate };
+
+    https.createServer(credentials, app).listen(config.port, config.host, () => {
+      console.log(`HTTPS Server running on ${config.host}:${config.port}`);
+    });
+  } else {
+    app.listen(config.port, config.host, () => {
+      console.log(`HTTP Server running on ${config.host}:${config.port}`);
+    });
+  }
 });
