@@ -115,7 +115,7 @@ const upload = multer({
 const uploadScreenshot = multer({
   storage: screenshotStorage,
   limits: {
-    fileSize: 20 * 1024 * 1024 // 5MB limit
+    fileSize: 20 * 1024 * 1024 // 20MB limit
   },
   fileFilter: (req, file, cb) => {
     if (!file.mimetype.startsWith('image/')) {
@@ -146,7 +146,44 @@ app.use(cors({
   maxAge: 86400
 }));
 app.use(express.json());
-app.use('/img', express.static(path.join(__dirname, '../../static/img')));
+app.use('/img', express.static(path.join(STATIC_DIR, 'img')));
+
+// Categories endpoints
+app.get('/api/categories', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM categories ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    res.status(500).json({ error: 'Failed to fetch categories' });
+  }
+});
+
+app.post('/api/categories', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Category name is required' });
+    }
+    
+    // Check if category already exists
+    const existingCategory = await pool.query('SELECT id FROM categories WHERE name = $1', [name]);
+    if (existingCategory.rows.length > 0) {
+      return res.json({ id: existingCategory.rows[0].id, name });
+    }
+    
+    const id = uuidv4();
+    const result = await pool.query(
+      'INSERT INTO categories (id, name) VALUES ($1, $2) RETURNING *',
+      [id, name]
+    );
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating category:', error);
+    res.status(500).json({ error: 'Failed to create category' });
+  }
+});
 
 // LIST ENDPOINT FIRST - before any parameterized routes
 app.get('/api/docs/list', async (req, res) => {
@@ -158,12 +195,29 @@ app.get('/api/docs/list', async (req, res) => {
         d.title,
         d.created_at,
         d.updated_at,
+        d.category_id,
+        c.name as category_name,
         pj.status
       FROM documentation d
       JOIN processing_jobs pj ON d.job_id = pj.id
+      LEFT JOIN categories c ON d.category_id = c.id
       ORDER BY d.created_at DESC
     `);
-    res.json(result.rows);
+    
+    const documents = result.rows.map(doc => ({
+      id: doc.id,
+      job_id: doc.job_id,
+      title: doc.title,
+      created_at: doc.created_at,
+      updated_at: doc.updated_at,
+      status: doc.status,
+      category: doc.category_id ? {
+        id: doc.category_id,
+        name: doc.category_name
+      } : null
+    }));
+    
+    res.json(documents);
   } catch (error) {
     console.error('Error fetching documents:', error);
     res.status(500).json({ error: 'Failed to fetch documents' });
@@ -413,7 +467,7 @@ async function completeProcessing(jobId: string) {
     }
 
     const docResult = await pool.query(
-      'SELECT title FROM documentation WHERE job_id = $1',
+      'SELECT title, category_id FROM documentation WHERE job_id = $1',
       [jobId]
     );
     
@@ -421,7 +475,18 @@ async function completeProcessing(jobId: string) {
       throw new Error('Documentation not found');
     }
     
-    const { title } = docResult.rows[0];
+    const { title, category_id } = docResult.rows[0];
+    
+    let categoryName = '';
+    if (category_id) {
+      const categoryResult = await pool.query(
+        'SELECT name FROM categories WHERE id = $1',
+        [category_id]
+      );
+      if (categoryResult.rows.length > 0) {
+        categoryName = categoryResult.rows[0].name;
+      }
+    }
     
     const now = new Date();
     const formattedDate = now.toLocaleDateString('en-US', {
@@ -437,6 +502,7 @@ async function completeProcessing(jobId: string) {
 title: ${title}
 sidebar_label: ${title}
 sidebar_position: 1
+${categoryName ? `category: ${categoryName}` : ''}
 ---
 
 # ${title}
@@ -457,7 +523,8 @@ ${segments.map(s => s.text).join(' ')}
 
 ${segments.map((seg, index) => {
   const imageUrl = imageUrls[index];
-  return `### ${formatTimestamp(seg.original_start_time)}
+  const stepTitle = seg.title ? `### ${seg.title}` : `### ${formatTimestamp(seg.original_start_time)}`;
+  return `${stepTitle}
 
 ${seg.text}
 ${imageUrl ? `\n![Screenshot at ${formatTimestamp(seg.original_start_time)}](${imageUrl})` : ''}`;
@@ -483,7 +550,7 @@ ${imageUrl ? `\n![Screenshot at ${formatTimestamp(seg.original_start_time)}](${i
   }
 }
 
-async function processVideo(jobId: string, filePath: string, title: string, documentId?: string, startTime?: number, endTime?: number) {
+async function processVideo(jobId: string, filePath: string, title: string, documentId?: string, startTime?: number, endTime?: number, categoryId?: string | null) {
   try {
     console.log('=== Starting video processing ===');
     
@@ -550,7 +617,7 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
     } else {
       const docId = uuidv4();
       const docPath = `/docs/generated/${jobId}`;
-
+      
       for (let i = 0; i < filteredSegments.length; i++) {
         const segment = filteredSegments[i];
         const segmentId = uuidv4();
@@ -564,8 +631,8 @@ async function processVideo(jobId: string, filePath: string, title: string, docu
       }
 
       await pool.query(
-        'INSERT INTO documentation (id, job_id, title, content) VALUES ($1, $2, $3, $4)',
-        [docId, jobId, title, docPath]
+        'INSERT INTO documentation (id, job_id, title, content, category_id) VALUES ($1, $2, $3, $4, $5)',
+        [docId, jobId, title, docPath, categoryId]
       );
 
       await pool.query(
@@ -600,11 +667,18 @@ async function initDatabase() {
         error_message TEXT
       );
 
+      CREATE TABLE IF NOT EXISTS categories (
+        id UUID PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
       CREATE TABLE IF NOT EXISTS documentation (
         id UUID PRIMARY KEY,
         job_id UUID REFERENCES processing_jobs(id),
         title VARCHAR(255) NOT NULL,
         content TEXT,
+        category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -613,12 +687,14 @@ async function initDatabase() {
         id UUID PRIMARY KEY,
         job_id UUID REFERENCES processing_jobs(id),
         segment_index INTEGER NOT NULL,
+        title VARCHAR(255),
         text TEXT NOT NULL,
         original_start_time NUMERIC(10, 3) NOT NULL,
         original_end_time NUMERIC(10, 3) NOT NULL,
         screenshot_path VARCHAR(255),
         needs_review BOOLEAN DEFAULT true,
         reviewed_at TIMESTAMP,
+        "order" INTEGER,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -825,7 +901,10 @@ app.get('/api/docs/:jobId', async (req, res) => {
     const { jobId } = req.params;
     
     const docResult = await pool.query(
-      'SELECT title, content FROM documentation WHERE job_id = $1',
+      `SELECT d.title, d.content, d.category_id, c.name as category_name 
+       FROM documentation d 
+       LEFT JOIN categories c ON d.category_id = c.id 
+       WHERE d.job_id = $1`,
       [jobId]
     );
 
@@ -838,7 +917,7 @@ app.get('/api/docs/:jobId', async (req, res) => {
     const content = await fs.readFile(docPath, 'utf8');
 
     const segmentsResult = await pool.query(
-      `SELECT id, segment_index, text, original_start_time, original_end_time, screenshot_path, "order" 
+      `SELECT id, segment_index, title, text, original_start_time, original_end_time, screenshot_path, "order" 
        FROM transcription_segments 
        WHERE job_id = $1 
        ORDER BY COALESCE("order", segment_index)`,
@@ -847,16 +926,22 @@ app.get('/api/docs/:jobId', async (req, res) => {
 
     const steps = segmentsResult.rows.map(segment => ({
       id: segment.id,
+      title: segment.title || '',
       timestamp: formatTime(Number(segment.original_start_time)),
       text: segment.text,
       imageUrl: segment.screenshot_path || null,
-      order: segment.order || segment.segment_index
+      order: segment.order || segment.segment_index,
+      original_start_time: Number(segment.original_start_time)
     }));
 
     res.json({
       title: docResult.rows[0].title,
       content: content,
-      steps: steps
+      steps: steps,
+      category: docResult.rows[0].category_id ? {
+        id: docResult.rows[0].category_id,
+        name: docResult.rows[0].category_name
+      } : null
     });
   } catch (error) {
     console.error('Error fetching document:', error);
@@ -873,7 +958,7 @@ function formatTime(seconds: number): string {
 app.put('/api/docs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const { content } = req.body;
+    const { content, categoryId } = req.body;
     
     if (!content) {
       res.status(400).json({ error: 'Content is required' });
@@ -883,20 +968,47 @@ app.put('/api/docs/:jobId', async (req, res) => {
     const docPath = path.join(DOCS_DIR, 'generated', jobId, 'index.md');
     await fs.writeFile(docPath, content, 'utf8');
 
-    const result = await pool.query(
-      `UPDATE documentation 
-       SET updated_at = CURRENT_TIMESTAMP 
-       WHERE job_id = $1 
-       RETURNING id, title, content, updated_at`,
-      [jobId]
-    );
+    let query = `UPDATE documentation 
+                 SET updated_at = CURRENT_TIMESTAMP`;
+    const queryParams = [];
+    
+    if (categoryId !== undefined) {
+      query += `, category_id = $${queryParams.length + 1}`;
+      queryParams.push(categoryId === null ? null : categoryId);
+    }
+    
+    query += ` WHERE job_id = $${queryParams.length + 1} RETURNING id, title, content, updated_at, category_id`;
+    queryParams.push(jobId);
+    
+    const result = await pool.query(query, queryParams);
 
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Document not found' });
       return;
     }
 
-    res.json({ success: true, document: result.rows[0] });
+    let categoryInfo = null;
+    if (result.rows[0].category_id) {
+      const categoryResult = await pool.query(
+        'SELECT name FROM categories WHERE id = $1',
+        [result.rows[0].category_id]
+      );
+      
+      if (categoryResult.rows.length > 0) {
+        categoryInfo = {
+          id: result.rows[0].category_id,
+          name: categoryResult.rows[0].name
+        };
+      }
+    }
+
+    res.json({ 
+      success: true, 
+      document: { 
+        ...result.rows[0], 
+        category: categoryInfo 
+      } 
+    });
   } catch (error) {
     console.error('Error updating document:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to update document' });
@@ -957,13 +1069,14 @@ app.post('/api/upload', upload.single('video'), async (req, res) => {
     const documentId = req.body.documentId;
     const startTime = req.body.startTime ? parseFloat(req.body.startTime) : undefined;
     const endTime = req.body.endTime ? parseFloat(req.body.endTime) : undefined;
+    const categoryId = req.body.categoryId || null;
 
     await pool.query(
       'INSERT INTO processing_jobs (id, status, file_path, original_filename) VALUES ($1, $2, $3, $4)',
       [req.jobId, 'pending', req.file.path, req.file.originalname]
     );
 
-    processVideo(req.jobId, req.file.path, title, documentId, startTime, endTime).catch(error => {
+    processVideo(req.jobId, req.file.path, title, documentId, startTime, endTime, categoryId).catch(error => {
       console.error('[Server] Error processing video:', error);
       pool.query(
         'UPDATE processing_jobs SET status = $1, error_message = $2 WHERE id = $3',
@@ -1057,7 +1170,7 @@ app.get('/api/docs/:jobId/segments', async (req, res) => {
     const { jobId } = req.params;
     
     const result = await pool.query(
-      `SELECT id, segment_index, text, original_start_time, original_end_time, needs_review, screenshot_path 
+      `SELECT id, segment_index, title, text, original_start_time, original_end_time, needs_review, screenshot_path 
        FROM transcription_segments 
        WHERE job_id = $1 
        ORDER BY segment_index`,
@@ -1084,9 +1197,19 @@ app.post('/api/docs/:jobId/finalize-segments', async (req, res) => {
       const segment = segments[i];
       await pool.query(
         `INSERT INTO transcription_segments 
-         (id, job_id, segment_index, text, original_start_time, original_end_time, screenshot_path, needs_review) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, false)`,
-        [uuidv4(), jobId, i, segment.text, segment.start_time, segment.end_time, segment.screenshot_path || null]
+         (id, job_id, segment_index, title, text, original_start_time, original_end_time, screenshot_path, needs_review, "order") 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)`,
+        [
+          segment.id || uuidv4(), 
+          jobId, 
+          i, 
+          segment.title || null,
+          segment.text, 
+          segment.start_time, 
+          segment.end_time, 
+          segment.screenshot_path || null,
+          segment.order || i
+        ]
       );
     }
     
@@ -1190,13 +1313,13 @@ app.post('/api/docs/:docId/steps/reorder', async (req, res) => {
 app.put('/api/docs/:docId/steps/:stepId', async (req, res) => {
   try {
     const { docId, stepId } = req.params;
-    const { text } = req.body;
+    const { title, text } = req.body;
     
     console.log(`Updating step ${stepId} for doc ${docId}`);
     
     const result = await pool.query(
-      'UPDATE transcription_segments SET text = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND job_id = $3 RETURNING *',
-      [text, stepId, docId]
+      'UPDATE transcription_segments SET title = $1, text = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 AND job_id = $4 RETURNING *',
+      [title || null, text, stepId, docId]
     );
     
     if (result.rows.length === 0) {
@@ -1257,7 +1380,7 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
     const { format } = req.query as { format?: string };
     
     const docResult = await pool.query(
-      'SELECT title, content FROM documentation WHERE job_id = $1',
+      'SELECT title, content, category_id FROM documentation WHERE job_id = $1',
       [jobId]
     );
     
@@ -1265,10 +1388,22 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
       return res.status(404).json({ error: 'Document not found' });
     }
     
-    const { title, content } = docResult.rows[0];
+    const { title, content, category_id } = docResult.rows[0];
+    
+    // Get category name if applicable
+    let categoryName = '';
+    if (category_id) {
+      const categoryResult = await pool.query(
+        'SELECT name FROM categories WHERE id = $1',
+        [category_id]
+      );
+      if (categoryResult.rows.length > 0) {
+        categoryName = categoryResult.rows[0].name;
+      }
+    }
     
     const segmentsResult = await pool.query(
-      `SELECT id, text, original_start_time, screenshot_path FROM transcription_segments 
+      `SELECT id, title, text, original_start_time, screenshot_path FROM transcription_segments 
        WHERE job_id = $1 
        ORDER BY COALESCE("order", segment_index)`,
       [jobId]
@@ -1285,20 +1420,31 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
           day: 'numeric'
         });
         
-        let markdown = `# ${title}\n\n`;
-        markdown += `> Generated on ${formattedDate}\n\n`;
-        
-        markdown += `## Overview\n\n`;
-        markdown += `This documentation was automatically generated from a video recording with voice narration.\n\n`;
-        
-        markdown += `## Full Transcript\n\n`;
-        markdown += segments.map(seg => seg.text).join(' ') + '\n\n';
-        
-        markdown += `## Timestamped Steps\n\n`;
+        let markdown = `---
+title: ${title}
+${categoryName ? `category: ${categoryName}` : ''}
+---
+
+# ${title}
+
+> Generated on ${formattedDate}
+
+## Overview
+
+This documentation was automatically generated from a video recording with voice narration.
+
+## Full Transcript
+
+${segments.map(seg => seg.text).join(' ')} 
+
+## Timestamped Steps
+
+`;
         
         segments.forEach(seg => {
           const timestamp = formatTime(Number(seg.original_start_time));
-          markdown += `### ${timestamp}\n\n`;
+          const stepTitle = seg.title ? `### ${seg.title}` : `### ${timestamp}`;
+          markdown += `${stepTitle}\n\n`;
           markdown += `${seg.text}\n\n`;
           
           if (seg.screenshot_path) {
@@ -1331,10 +1477,13 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
         img { max-width: 100%; }
         .timestamp { background-color: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
         .note { background-color: #f8f8f8; border-left: 4px solid #0066cc; padding: 15px; margin: 20px 0; }
+        .category { display: inline-block; background-color: #f0f0f0; color: #333; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; margin-bottom: 10px; }
       </style>
     </head>
     <body>
       <h1>${title}</h1>
+      
+      ${categoryName ? `<div class="category">${categoryName}</div>` : ''}
       
       <div class="note">
         <p>Generated on ${formattedDate}</p>
@@ -1350,8 +1499,9 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
         
         segments.forEach(seg => {
           const timestamp = formatTime(Number(seg.original_start_time));
+          const stepTitle = seg.title ? seg.title : `<span class="timestamp">${timestamp}</span>`;
           html += `
-      <h3><span class="timestamp">${timestamp}</span></h3>
+      <h3>${stepTitle}</h3>
       <p>${seg.text}</p>`;
           
           if (seg.screenshot_path) {
@@ -1389,10 +1539,13 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
         img { max-width: 100%; }
         .timestamp { background-color: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-family: monospace; }
         .note { background-color: #f8f8f8; border-left: 4px solid #0066cc; padding: 15px; margin: 20px 0; }
+        .category { display: inline-block; background-color: #f0f0f0; color: #333; padding: 2px 8px; border-radius: 12px; font-size: 0.85em; margin-bottom: 10px; }
       </style>
     </head>
     <body>
       <h1>${title}</h1>
+      
+      ${categoryName ? `<div class="category">${categoryName}</div>` : ''}
       
       <div class="note">
         <p>Generated on ${formattedDate}</p>
@@ -1408,8 +1561,9 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
         
         segments.forEach(seg => {
           const timestamp = formatTime(Number(seg.original_start_time));
+          const stepTitle = seg.title ? seg.title : `<span class="timestamp">${timestamp}</span>`;
           html += `
-      <h3><span class="timestamp">${timestamp}</span></h3>
+      <h3>${stepTitle}</h3>
       <p>${seg.text}</p>`;
           
           if (seg.screenshot_path) {
@@ -1444,7 +1598,7 @@ app.get('/api/docs/:jobId/export', async (req, res) => {
           res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/\s+/g, '_')}_print.html"`);
           return res.send(html);
         }
-      } // <--- Added closing brace here
+      }
       
       default:
         return res.status(400).json({ error: 'Invalid export format. Supported formats are: markdown, html, pdf' });
