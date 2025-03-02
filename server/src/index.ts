@@ -141,12 +141,27 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: config.clientUrl,
+  origin: [
+    'https://10.0.0.59:3000',
+    'https://app.documentit.io',
+    'https://documentit.io',
+    'https://www.documentit.io'
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control', 'Pragma', 'Expires'],
   credentials: true,
   maxAge: 86400
 }));
+
+// Add more permissive headers for mobile browsers
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin);
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  next();
+});
+
 app.use(express.json());
 app.use('/img', express.static(path.join(STATIC_DIR, 'img')));
 
@@ -1611,21 +1626,70 @@ ${segments.map(seg => seg.text).join(' ')}
   }
 });
 
+// Add a simple health check endpoint for testing
+app.get('/api/health', (req, res) => {
+  res.setHeader('Content-Type', 'text/plain');
+  res.status(200).send('API server is healthy - ' + new Date().toISOString());
+});
+
 const PORT = Number(process.env.PORT) || 3001;
 
-initDatabase().then(async () => { // Make this function async
-  if (process.env.NODE_ENV === 'production' || process.env.USE_HTTPS === 'true') {
-    const certsDir = path.join(__dirname, '..', '..', 'certs');
-    const privateKey = await fs.readFile(path.join(certsDir, '10.0.0.59+2-key.pem'), 'utf8');
-    const certificate = await fs.readFile(path.join(certsDir, '10.0.0.59+2.pem'), 'utf8');
-    const credentials = { key: privateKey, cert: certificate };
+const startServer = async () => {
+  try {
+    // Try multiple paths for certificates
+    const possibleCertDirs = [
+      '/docgen/certs',
+      '/home/sedu/docgen/certs',
+      path.join(__dirname, '..', '..', 'certs')
+    ];
+    
+    let privateKey;
+    let certificate;
+    let foundPath = '';
+    
+    for (const certDir of possibleCertDirs) {
+      try {
+        // First try the original IP-based filenames for backward compatibility
+        let keyPath = path.join(certDir, '10.0.0.59+2-key.pem');
+        let certPath = path.join(certDir, '10.0.0.59+2.pem');
+        
+        // Check if both files exist
+        try {
+          await fs.access(keyPath, fs.constants.R_OK);
+          await fs.access(certPath, fs.constants.R_OK);
+        } catch (e) {
+          // If not found, try domain-based filenames
+          keyPath = path.join(certDir, 'server-key.pem');
+          certPath = path.join(certDir, 'server.pem');
+          await fs.access(keyPath, fs.constants.R_OK);
+          await fs.access(certPath, fs.constants.R_OK);
+        }
+        
+        // If we got here, the files exist and are readable
+        privateKey = await fs.readFile(keyPath, 'utf8');
+        certificate = await fs.readFile(certPath, 'utf8');
+        foundPath = certDir;
+        console.log(`Found certificates in ${certDir}`);
+        break;
+      } catch (e) {
+        console.log(`Certificates not found in ${certDir}, trying next location...`);
+      }
+    }
+    
+    if (!privateKey || !certificate) {
+      throw new Error('Failed to find certificates in any of the expected locations');
+    }
 
+    const credentials = { key: privateKey, cert: certificate };
     https.createServer(credentials, app).listen(config.port, config.host, () => {
-      console.log(`HTTPS Server running on ${config.host}:${config.port}`);
+      console.log(`HTTPS Server running on https://${config.host}:${config.port}`);
+      console.log(`Using certificates from: ${foundPath}`);
     });
-  } else {
-    app.listen(config.port, config.host, () => {
-      console.log(`HTTP Server running on ${config.host}:${config.port}`);
-    });
+  } catch (error) {
+    console.error('Failed to start HTTPS server:', error);
+    process.exit(1);
   }
-});
+};
+
+// Call this function instead of app.listen
+startServer();

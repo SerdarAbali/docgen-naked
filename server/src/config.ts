@@ -13,13 +13,13 @@ interface Config {
 
 const config = {
   development: {
-    host: '10.0.0.59',
+    host: '0.0.0.0', // Listen on all interfaces
     port: 3001,
-    clientUrl: 'http://10.0.0.59:3000',
+    clientUrl: 'https://app.documentit.io',
     staticDir: '../static',
     docsDir: '../docs',
     uploadsDir: '../uploads',
-    apiUrl: 'http://10.0.0.59:3001'
+    apiUrl: 'https://api.documentit.io'
   },
   production: {
     host: process.env.HOST || '0.0.0.0',
@@ -32,7 +32,8 @@ const config = {
   }
 };
 
-const env = process.env.NODE_ENV || 'development';
+// Default to production mode
+const env = process.env.NODE_ENV || 'production';
 
 export default config[env as keyof typeof config];
 export { Config };
