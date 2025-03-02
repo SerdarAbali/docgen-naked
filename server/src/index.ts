@@ -715,6 +715,16 @@ async function initDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS document_flowcharts (
+        id UUID PRIMARY KEY,
+        document_id UUID REFERENCES documentation(id),
+        job_id UUID REFERENCES processing_jobs(id),
+        content TEXT NOT NULL,
+        mappings JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
     
     await fs.mkdir(UPLOAD_BASE_DIR, { recursive: true });
@@ -1161,10 +1171,10 @@ app.delete('/api/docs/:jobId', async (req, res) => {
     );
 
     const dirs = {
-	  root: path.join(__dirname, '..', config.uploadsDir, jobId),
-	  docs: path.join(__dirname, '..', config.docsDir, 'generated', jobId),
-	  img: path.join(__dirname, '..', config.staticDir, 'img', jobId)
-	};
+      root: path.join(__dirname, '..', config.uploadsDir, jobId),
+      docs: path.join(__dirname, '..', config.docsDir, 'generated', jobId),
+      img: path.join(__dirname, '..', config.staticDir, 'img', jobId)
+    };
 
     await Promise.all([
       fs.rm(dirs.root, { recursive: true, force: true }).catch(() => {}),
@@ -1347,6 +1357,100 @@ app.put('/api/docs/:docId/steps/:stepId', async (req, res) => {
   } catch (error) {
     console.error('Error updating step:', error);
     res.status(500).json({ error: 'Failed to update step', details: error instanceof Error ? error.message : 'Unknown error' });
+  }
+});
+
+// Get flowchart for a document
+app.get('/api/docs/:jobId/flowchart', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    
+    // First, verify that the document exists
+    const docResult = await pool.query(
+      'SELECT id FROM documentation WHERE job_id = $1',
+      [jobId]
+    );
+    
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    const documentId = docResult.rows[0].id;
+    
+    // Try to get the flowchart
+    const flowchartResult = await pool.query(
+      'SELECT id, content, mappings FROM document_flowcharts WHERE job_id = $1',
+      [jobId]
+    );
+    
+    if (flowchartResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Flowchart not found' });
+    }
+    
+    res.json(flowchartResult.rows[0]);
+  } catch (error) {
+    console.error('Error fetching flowchart:', error);
+    res.status(500).json({ error: 'Failed to fetch flowchart' });
+  }
+});
+
+// Create or update flowchart
+app.post('/api/docs/:jobId/flowchart', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const { content, mappings } = req.body;
+    
+    if (!content) {
+      return res.status(400).json({ error: 'Flowchart content is required' });
+    }
+    
+    // First, verify that the document exists
+    const docResult = await pool.query(
+      'SELECT id FROM documentation WHERE job_id = $1',
+      [jobId]
+    );
+    
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    
+    const documentId = docResult.rows[0].id;
+    
+    // Check if a flowchart already exists for this document
+    const existingFlowchart = await pool.query(
+      'SELECT id FROM document_flowcharts WHERE job_id = $1',
+      [jobId]
+    );
+    
+    if (existingFlowchart.rows.length > 0) {
+      // Update existing flowchart
+      const flowchartId = existingFlowchart.rows[0].id;
+      
+      const result = await pool.query(
+        `UPDATE document_flowcharts 
+         SET content = $1, mappings = $2, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $3 
+         RETURNING id, content, mappings`,
+        [content, mappings || {}, flowchartId]
+      );
+      
+      res.json(result.rows[0]);
+    } else {
+      // Create new flowchart
+      const flowchartId = uuidv4();
+      
+      const result = await pool.query(
+        `INSERT INTO document_flowcharts (id, document_id, job_id, content, mappings) 
+         VALUES ($1, $2, $3, $4, $5) 
+         RETURNING id, content, mappings`,
+        [flowchartId, documentId, jobId, content, mappings || {}]
+      );
+      
+      res.status(201).json(result.rows[0]);
+    }
+  } catch (error) {
+    console.error('Error saving flowchart:', error);
+    res.status(500).json({ error: 'Failed to save flowchart' });
   }
 });
 
@@ -1636,6 +1740,8 @@ const PORT = Number(process.env.PORT) || 3001;
 
 const startServer = async () => {
   try {
+    await initDatabase();
+    
     // Try multiple paths for certificates
     const possibleCertDirs = [
       '/docgen/certs',
