@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "dev:https": "node https-dev-server.mjs",
+    "build": "vite build",
+    "type-check": "tsc --noEmit",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -13,6 +15,7 @@
     "@ckeditor/ckeditor5-react": "^5.1.0",
     "konva": "^8.4.3",
     "lucide-react": "^0.476.0",
+    "mermaid": "^11.4.1",
     "react": "^18.2.0",
     "react-beautiful-dnd": "^13.1.1",
     "react-dnd": "^16.0.1",
@@ -21,13 +24,17 @@
     "react-konva": "^18.2.10",
     "react-markdown": "^10.0.0",
     "react-router-dom": "^7.2.0",
+    "reactflow": "^11.11.4",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@babel/plugin-transform-react-jsx": "^7.25.9",
     "@tailwindcss/typography": "^0.5.10",
     "@types/node": "^22.13.8",
     "@types/react": "^18.2.45",
-    "@types/react-dom": "^18.2.18",
+    "@types/react-beautiful-dnd": "^13.1.8",
+    "@types/react-dom": "^18.3.5",
+    "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32",
