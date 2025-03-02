@@ -1,7 +1,7 @@
 // dont remove this comment. document located at /src/components/DocumentExport/index.tsx
 
 import React, { useState } from 'react';
-import { Download, FileText, FileCode, FilePdf } from 'lucide-react';
+import { FileText, FileCode, File } from 'lucide-react';
 import config from '../../config';
 
 interface DocumentExportProps {
@@ -97,7 +97,7 @@ const DocumentExport: React.FC<DocumentExportProps> = ({ documentId, title }) =>
           disabled={isExporting}
           className="button button--secondary flex items-center gap-2"
         >
-          <FilePdf size={16} />
+          <File size={16} />
           PDF
         </button>
       </div>

@@ -9,7 +9,7 @@ const ApiReference: React.FC = () => {
         <h2 className="text-xl font-semibold mb-4">Overview</h2>
         <p className="mb-4">
           documentit provides a RESTful API that allows you to programmatically generate documentation from video content.
-          All API requests should be made to the base URL: <code className="bg-gray-100 px-1 py-0.5 rounded">http://10.0.0.59:3001</code>
+          All API requests should be made to the base URL: <code className="bg-gray-100 px-1 py-0.5 rounded">https://api.documentit.io</code>
         </p>
         
         <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-700 mb-4">

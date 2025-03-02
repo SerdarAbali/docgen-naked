@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import StepEditor from './StepEditor';
+import BrowserOnly from '../BrowserOnly';
 import config from '../../config';
 
 interface DocEditorProps {
@@ -96,8 +97,7 @@ const DocEditor: React.FC<DocEditorProps> = ({ documentId }) => {
           <div className="theme-doc-markdown markdown">
             <BrowserOnly>
               {() => {
-                const MDXContent = require('@theme/MDXContent').default;
-                return <MDXContent>{content}</MDXContent>;
+                return <div dangerouslySetInnerHTML={{ __html: content }} />;
               }}
             </BrowserOnly>
           </div>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Globe, GitHub, Book } from 'lucide-react';
+import { Globe, Github, BookOpen } from 'lucide-react';
 import config from '../../config';
 
 interface DocPublishProps {
@@ -72,7 +72,7 @@ const DocPublish: React.FC<DocPublishProps> = ({ documentId, title }) => {
       
       <div className="border-b border-gray-200 py-4 mb-4">
         <h4 className="flex items-center gap-2 font-medium mb-3">
-          <GitHub size={20} />
+          <Github size={20} />
           Publish to GitHub
         </h4>
         
@@ -122,7 +122,7 @@ const DocPublish: React.FC<DocPublishProps> = ({ documentId, title }) => {
           disabled={isPublishing}
           className="button button--primary flex items-center gap-2"
         >
-          <GitHub size={16} />
+          <Github size={16} />
           {isPublishing ? 'Publishing...' : 'Publish to GitHub'}
         </button>
       </div>

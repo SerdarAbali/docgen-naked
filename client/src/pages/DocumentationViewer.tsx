@@ -7,12 +7,14 @@ import { CKEditor } from '@ckeditor/ckeditor5-react';
 import ClassicEditor from '@ckeditor/ckeditor5-build-classic';
 import {
   Edit, Save, X, Trash2, Plus, Upload, FileText, File, MoreVertical,
-  Download, Code, Clock, CheckCircle, XCircle, Image, ArrowUp, ArrowDown, Folder
-} from 'lucide-react'; // Removed FilePdf
+  Download, XCircle, Folder
+} from 'lucide-react';
 import ImageAnnotator from '../components/ImageAnnotator';
 import CategorySelector from '../components/CategorySelector';
+import FlowchartTab from '../components/FlowchartTab';
 import { v4 as uuidv4 } from 'uuid';
 import config from "../config";
+import 'reactflow/dist/style.css';
 
 const API_BASE_URL = config.apiUrl;
 
@@ -57,10 +59,8 @@ interface StepItemProps {
 const StepItem: React.FC<StepItemProps> = ({
   step, index, editMode, isEditing, moveStep, onEdit, onDelete, onImageClick, onSave, onCancel, onAnnotate, onUploadImage
 }) => {
-  // Ref to scroll to when editing
   const stepRef = useRef<HTMLDivElement>(null);
   
-  // Scroll to this step when editing starts
   useEffect(() => {
     if (isEditing && stepRef.current) {
       stepRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -89,7 +89,6 @@ const StepItem: React.FC<StepItemProps> = ({
     dropRef(node);
   };
 
-  // Local state for step editing
   const [localStepText, setLocalStepText] = useState(step.text);
   const [localStepTitle, setLocalStepTitle] = useState(step.title || '');
   
@@ -187,7 +186,8 @@ const StepItem: React.FC<StepItemProps> = ({
                     </button>
                     <button
                       onClick={() => {
-                        const fullImageUrl = step.imageUrl!.startsWith('http') 
+                        if (!step.imageUrl) return;
+                        const fullImageUrl = step.imageUrl.startsWith('http') 
                           ? step.imageUrl 
                           : `${API_BASE_URL}${step.imageUrl}`;
                         onAnnotate(fullImageUrl);
@@ -228,9 +228,7 @@ const StepItem: React.FC<StepItemProps> = ({
           </div>
         ) : (
           <div>
-            {/* Two column layout in view mode - only when NOT in edit mode */}
             <div className="flex flex-col md:flex-row md:gap-6">
-              {/* Left column for text content */}
               <div className="md:w-1/2">
                 <div className="mb-2 flex items-center">
                   <span className="inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium bg-primary/10 text-primary">
@@ -240,12 +238,8 @@ const StepItem: React.FC<StepItemProps> = ({
                     <span className="ml-2 font-medium text-gray-700">{step.title}</span>
                   )}
                 </div>
-                
-                {/* Step content/description */}
                 <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: step.text }} />
               </div>
-              
-              {/* Right column for image - only shown if there's an image */}
               <div className={`mt-4 md:mt-0 md:w-1/2 ${!step.imageUrl ? 'hidden' : ''}`}>
                 {step.imageUrl && (
                   <img
@@ -274,7 +268,6 @@ const DocumentationViewer: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  // Get edit mode from URL query parameter
   const queryParams = new URLSearchParams(location.search);
   const editModeFromUrl = queryParams.get('edit') === 'true';
   
@@ -290,18 +283,15 @@ const DocumentationViewer: React.FC = () => {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [lightboxAlt, setLightboxAlt] = useState<string>('');
   const [imageToAnnotate, setImageToAnnotate] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'document' | 'flowchart'>('document');
   
-  // Overview editing
   const [editingOverview, setEditingOverview] = useState(false);
   const [overviewText, setOverviewText] = useState<string>('');
   const [documentTitle, setDocumentTitle] = useState<string>('');
-  
-  // Category
   const [categoryId, setCategoryId] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Set edit mode initially if specified in URL
   useEffect(() => {
     if (editModeFromUrl) {
       setEditMode(true);
@@ -321,7 +311,6 @@ const DocumentationViewer: React.FC = () => {
         setDocumentTitle(data.title || 'Untitled Document');
         setCategoryId(data.category?.id || null);
         
-        // Extract overview text
         setOverviewText('This documentation was automatically generated from a video recording with voice narration.');
         
         if (data.steps && Array.isArray(data.steps)) {
@@ -389,7 +378,6 @@ const DocumentationViewer: React.FC = () => {
         throw new Error(`Failed to save step: ${responseText}`);
       }
       
-      // Update local state with the changes
       setSteps(steps.map(step => 
         step.id === editingStep.id 
           ? { ...step, text: editingStep.text, imageUrl: editingStep.imageUrl, title: editingStep.title } 
@@ -421,19 +409,22 @@ const DocumentationViewer: React.FC = () => {
     setSteps(updatedSteps);
   };
 
-  const saveStepOrder = async () => {
+  const saveStepOrder = async (stepsToSave: Step[] = sortedSteps) => {
     if (!id) return;
+    
     try {
       setSaveLoading(true);
-      const orderedSteps = steps.map((step, index) => ({
+      const orderedSteps = stepsToSave.map((step) => ({
         id: step.id,
         order: step.order
       }));
+      
       const response = await fetch(`${API_BASE_URL}/api/docs/${id}/steps/reorder`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ steps: orderedSteps }),
       });
+      
       if (!response.ok) throw new Error('Failed to save step order');
     } catch (err) {
       console.error('Error saving step order:', err);
@@ -513,8 +504,6 @@ const DocumentationViewer: React.FC = () => {
   const deleteStep = async (stepId: string) => {
     if (!id || !window.confirm('Are you sure you want to delete this step?')) return;
     try {
-      const stepToDelete = steps.find(step => step.id === stepId);
-      console.log(`Deleting step: ${stepId}`, stepToDelete);
       const remainingSteps = steps.filter(step => step.id !== stepId);
       setSteps(remainingSteps);
       const segmentsForUpdate = remainingSteps.map(step => ({
@@ -532,7 +521,6 @@ const DocumentationViewer: React.FC = () => {
         updated_at: new Date().toISOString()
       }));
       const requestBody = { segments: segmentsForUpdate };
-      console.log('Updating segments with data:', JSON.stringify(requestBody, null, 2));
       const response = await fetch(`${API_BASE_URL}/api/docs/${id}/finalize-segments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -542,7 +530,6 @@ const DocumentationViewer: React.FC = () => {
         const errorText = await response.text();
         throw new Error(`Failed to delete step: ${errorText}`);
       }
-      console.log('Step deleted successfully');
       const docResponse = await fetch(`${API_BASE_URL}/api/docs/${id}`);
       if (!docResponse.ok) throw new Error('Failed to refresh document');
       const data = await docResponse.json();
@@ -577,7 +564,6 @@ const DocumentationViewer: React.FC = () => {
       });
       if (!response.ok) throw new Error(`Failed to upload image: ${response.status}`);
       const data = await response.json();
-      console.log('[DocumentationViewer] Upload response:', data);
       const updatedStep = { ...editingStep, imageUrl: data.imageUrl };
       setEditingStep(updatedStep);
       const updatedSegments = steps.map(step => ({
@@ -602,7 +588,6 @@ const DocumentationViewer: React.FC = () => {
       });
       if (!saveResponse.ok) {
         const errorText = await saveResponse.text();
-        console.error('[DEBUG] Failed to save image update:', errorText);
         throw new Error(`Failed to save image: ${errorText}`);
       }
       setSteps(steps.map(step => step.id === editingStep.id ? { ...step, imageUrl: data.imageUrl } : step));
@@ -617,7 +602,6 @@ const DocumentationViewer: React.FC = () => {
   const handleAnnotationSave = async (dataUrl: string) => {
     if (!id || !editingStep) return;
     try {
-      console.log("Processing annotated image, dataUrl length:", dataUrl.length);
       const response = await fetch(dataUrl);
       const blob = await response.blob();
       const formData = new FormData();
@@ -630,7 +614,6 @@ const DocumentationViewer: React.FC = () => {
         throw new Error("Failed to upload annotated image");
       }
       const data = await responseUpload.json();
-      console.log("Annotation upload successful:", data);
       const updatedStep = {
         ...editingStep,
         imageUrl: data.imageUrl,
@@ -657,7 +640,6 @@ const DocumentationViewer: React.FC = () => {
       });
       if (!saveResponse.ok) {
         const errorText = await saveResponse.text();
-        console.error("[DEBUG] Failed to save annotated image update:", errorText);
         throw new Error(`Failed to save annotated image: ${errorText}`);
       }
       const newSteps = steps.map((step) => (step.id === editingStep.id ? updatedStep : step));
@@ -724,12 +706,10 @@ const DocumentationViewer: React.FC = () => {
     setEditMode(false);
   };
 
-  // Handle category change
   const handleCategoryChange = async (newCategoryId: string | null) => {
     if (!id) return;
     try {
       setSaveLoading(true);
-      
       const response = await fetch(`${API_BASE_URL}/api/docs/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -738,9 +718,7 @@ const DocumentationViewer: React.FC = () => {
           categoryId: newCategoryId
         }),
       });
-      
       if (!response.ok) throw new Error('Failed to update category');
-      
       const result = await response.json();
       if (doc) {
         setDoc({
@@ -757,23 +735,15 @@ const DocumentationViewer: React.FC = () => {
     }
   };
 
-  // Handle saving document title and overview
   const handleSaveOverview = async () => {
     if (!id || !doc) return;
     try {
       setSaveLoading(true);
-      
-      // Generate new markdown with updated title and overview
       let updatedContent = doc.content;
-      
-      // Update title in frontmatter
       const titleRegex = /(title:\s*)[^\n]+/;
       updatedContent = updatedContent.replace(titleRegex, `$1${documentTitle}`);
-      
-      // Update overview content
       const overviewRegex = /(## Overview\s+)([^#]+)/;
       updatedContent = updatedContent.replace(overviewRegex, `$1${overviewText}\n\n`);
-      
       const response = await fetch(`${API_BASE_URL}/api/docs/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -782,16 +752,12 @@ const DocumentationViewer: React.FC = () => {
           title: documentTitle 
         }),
       });
-      
       if (!response.ok) throw new Error('Failed to save overview');
-      
-      // Update local doc state
       setDoc({
         ...doc,
         title: documentTitle,
         content: updatedContent
       });
-      
       setEditingOverview(false);
     } catch (err) {
       console.error('Error saving overview:', err);
@@ -801,7 +767,75 @@ const DocumentationViewer: React.FC = () => {
     }
   };
 
-  // Render overview section
+  const handleAddStepFromFlowchart = async (text: string) => {
+    try {
+      setIsLoading(true);
+      const newStepId = uuidv4();
+      const newStep: Step = {
+        id: newStepId,
+        timestamp: '0:00',
+        text: text,
+        imageUrl: null,
+        order: steps.length,
+        original_start_time: 0
+      };
+
+      const newSteps = [...steps, newStep];
+      setSteps(newSteps);
+      
+      const updatedSegments = newSteps.map(step => ({
+        id: step.id,
+        text: step.text || '',
+        title: step.title || null,
+        start_time: (step.original_start_time || 0).toString() || '0',
+        end_time: ((step.original_start_time || 0) + 10).toString(),
+        screenshot_path: step.imageUrl || null,
+        job_id: id!,
+        needs_review: true,
+        reviewed_at: step.reviewed_at || null,
+        order: step.order,
+        created_at: step.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }));
+      
+      const requestBody = { segments: updatedSegments };
+      const response = await fetch(`${API_BASE_URL}/api/docs/${id}/finalize-segments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to save new step: ${response.statusText}`);
+      }
+
+      const refreshResponse = await fetch(`${API_BASE_URL}/api/docs/${id}/segments`);
+      if (!refreshResponse.ok) throw new Error('Failed to refresh segments');
+      const refreshedSegments = await refreshResponse.json();
+      const refreshedSteps = refreshedSegments.map((segment: any) => ({
+        id: segment.id,
+        timestamp: segment.start_time ? `${Math.floor(segment.start_time / 60)}:${(segment.start_time % 60).toString().padStart(2, '0')}` : '0:00',
+        text: segment.text,
+        imageUrl: segment.screenshot_path || null,
+        order: segment.order || segment.segment_index,
+        original_start_time: Number(segment.original_start_time)
+      }));
+      setSteps(refreshedSteps);
+      
+      setError(null);
+    } catch (err) {
+      console.error('Error adding step from flowchart:', err);
+      setError(err instanceof Error ? err.message : 'Failed to add step from flowchart');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateStepsFromFlowchart = (updatedSteps: Step[]) => {
+    setSteps(updatedSteps);
+    saveStepOrder(updatedSteps);
+  };
+
   const renderOverviewSection = () => (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-8">
       <div className="flex justify-between items-start mb-4">
@@ -940,6 +974,8 @@ const DocumentationViewer: React.FC = () => {
     );
   }
 
+  const documentId = doc?.title || '';
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       <div className="mb-8">
@@ -984,7 +1020,7 @@ const DocumentationViewer: React.FC = () => {
                         onClick={() => handleExport('pdf')} 
                         className="flex items-center w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
                       >
-                        <FilePdf size={16} className="mr-2" />
+                        <File size={16} className="mr-2" />
                         PDF
                       </button>
                     </div>
@@ -1001,7 +1037,7 @@ const DocumentationViewer: React.FC = () => {
                   Add Step
                 </button>
                 <button
-                  onClick={saveStepOrder}
+                  onClick={() => saveStepOrder()}
                   className="btn-secondary flex items-center gap-2"
                   disabled={saveLoading || editingStep !== null}
                 >
@@ -1022,75 +1058,112 @@ const DocumentationViewer: React.FC = () => {
         </div>
       </div>
 
-      {/* Overview section */}
-      {renderOverviewSection()}
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200 mb-6">
+        <nav className="flex space-x-8">
+          <button
+            onClick={() => setActiveTab('document')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'document'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Document
+          </button>
+          <button
+            onClick={() => setActiveTab('flowchart')}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'flowchart'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Flowchart
+          </button>
+        </nav>
+      </div>
 
-      {/* Steps section */}
-      <div className="mb-8">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Steps</h3>
-        
-        <DndProvider backend={HTML5Backend}>
-          <div className="space-y-1">
-            {sortedSteps.map((step, index) => (
-              <StepItem
-                key={step.id}
-                step={{ ...step, imageUrl: step.imageUrl ? (step.imageUrl.startsWith('http') ? step.imageUrl : `${API_BASE_URL}${step.imageUrl}`) : null }}
-                index={index}
-                editMode={editMode}
-                isEditing={editingStep?.id === step.id}
-                moveStep={moveStep}
-                onEdit={() => handleEditStep(step)}
-                onDelete={() => deleteStep(step.id)}
-                onImageClick={handleImageClick}
-                onSave={(updatedStep) => {
-                  setEditingStep(updatedStep);
-                  handleSaveStep();
-                }}
-                onCancel={handleCancelEdit}
-                onAnnotate={setImageToAnnotate}
-                onUploadImage={handleImageUpload}
-              />
-            ))}
+      {/* Conditional rendering based on active tab */}
+      {activeTab === 'document' ? (
+        <>
+          {renderOverviewSection()}
+
+          <div className="mb-8">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Steps</h3>
             
-            {sortedSteps.length === 0 && (
-              <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
-                <p className="text-gray-500">No steps found in this document.</p>
-                {editMode && (
-                  <button 
-                    onClick={addNewStep}
-                    className="mt-4 btn-primary inline-flex items-center gap-2"
-                  >
-                    <Plus size={16} />
-                    Add First Step
-                  </button>
+            <DndProvider backend={HTML5Backend}>
+              <div className="space-y-1">
+                {sortedSteps.map((step, index) => (
+                  <StepItem
+                    key={step.id}
+                    step={{ ...step, imageUrl: step.imageUrl ? (step.imageUrl.startsWith('http') ? step.imageUrl : `${API_BASE_URL}${step.imageUrl}`) : null }}
+                    index={index}
+                    editMode={editMode}
+                    isEditing={editingStep?.id === step.id}
+                    moveStep={moveStep}
+                    onEdit={() => handleEditStep(step)}
+                    onDelete={() => deleteStep(step.id)}
+                    onImageClick={handleImageClick}
+                    onSave={(updatedStep) => {
+                      setEditingStep(updatedStep);
+                      handleSaveStep();
+                    }}
+                    onCancel={handleCancelEdit}
+                    onAnnotate={setImageToAnnotate}
+                    onUploadImage={handleImageUpload}
+                  />
+                ))}
+                
+                {sortedSteps.length === 0 && (
+                  <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-gray-500">No steps found in this document.</p>
+                    {editMode && (
+                      <button 
+                        onClick={addNewStep}
+                        className="mt-4 btn-primary inline-flex items-center gap-2"
+                      >
+                        <Plus size={16} />
+                        Add First Step
+                      </button>
+                    )}
+                  </div>
                 )}
+              </div>
+            </DndProvider>
+
+            {editMode && sortedSteps.length > 0 && !editingStep && (
+              <div className="mt-6 flex justify-end">
+                <button 
+                  onClick={() => saveStepOrder()} 
+                  className="btn-primary flex items-center gap-2" 
+                  disabled={saveLoading}
+                >
+                  {saveLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      Save Order
+                    </>
+                  )}
+                </button>
               </div>
             )}
           </div>
-        </DndProvider>
-
-        {editMode && sortedSteps.length > 0 && !editingStep && (
-          <div className="mt-6 flex justify-end">
-            <button 
-              onClick={saveStepOrder} 
-              className="btn-primary flex items-center gap-2" 
-              disabled={saveLoading}
-            >
-              {saveLoading ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white"></div>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save size={16} />
-                  Save Order
-                </>
-              )}
-            </button>
-          </div>
-        )}
-      </div>
+        </>
+      ) : (
+        <FlowchartTab 
+          documentId={documentId || ''}
+          jobId={id || ''}
+          steps={steps}
+          onAddStep={handleAddStepFromFlowchart}
+          onUpdateSteps={handleUpdateStepsFromFlowchart}
+        />
+      )}
 
       {lightboxImage && (
         <div
