@@ -1,4 +1,3 @@
-// client/src/components/FlowchartTab/index.tsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactFlow, {
   Node,
@@ -11,12 +10,13 @@ import ReactFlow, {
   Connection,
   MarkerType,
   ReactFlowProvider,
-  ConnectionLineType
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { Edit, Save, PlusCircle, Trash2 } from 'lucide-react';
+import { Edit, Save, PlusCircle, AlertCircle } from 'lucide-react';
 import config from '../../config';
+import EditNodeModal from './EditNodeModal';
+import CustomNode from './CustomNode';
 
 interface FlowchartTabProps {
   documentId: string;
@@ -39,13 +39,12 @@ interface FlowchartData {
   edges: Edge[];
 }
 
-// Import custom node component
-import CustomNode from './CustomNode';
-
-// Custom node types
 const nodeTypes = {
   customNode: CustomNode,
 };
+
+const NODE_VERTICAL_SPACING = 150;
+const NODE_CENTER_X = 400;
 
 const FlowchartTab: React.FC<FlowchartTabProps> = ({ 
   documentId, 
@@ -62,8 +61,28 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<any>(null);
-  
-  // Load or initialize flowchart
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editingNodeLabel, setEditingNodeLabel] = useState('');
+  const [editingNodeText, setEditingNodeText] = useState('');
+
+  // Updated createStandardEdge function with optional handles
+  const createStandardEdge = (
+    sourceId: string,
+    targetId: string,
+    sourceHandle?: string,
+    targetHandle?: string
+  ) => {
+    return {
+      id: `${sourceId}-${targetId}`,
+      source: sourceId,
+      target: targetId,
+      sourceHandle: sourceHandle || 'bottom',  // Default to bottom, but allow override
+      targetHandle: targetHandle || 'top',     // Default to top, but allow override
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed }
+    };
+  };
+
   useEffect(() => {
     const loadFlowchart = async () => {
       try {
@@ -73,18 +92,24 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
         
         if (response.ok) {
           const data = await response.json();
-          if (data.nodes && data.edges) {
-            setNodes(data.nodes);
-            setEdges(data.edges);
-          } else {
-            // If the data structure doesn't match, generate from steps
-            generateFlowchartFromSteps();
+          if (data && data.content) {
+            try {
+              const flowchartData = JSON.parse(data.content);
+              if (flowchartData.nodes && flowchartData.edges) {
+                setNodes(flowchartData.nodes);
+                setEdges(flowchartData.edges);
+                return;
+              }
+            } catch (parseError) {
+              console.error("Error parsing flowchart JSON:", parseError);
+            }
           }
+          generateFlowchartFromSteps();
         } else if (response.status === 404) {
-          // Create a default flowchart based on steps
           generateFlowchartFromSteps();
         } else {
-          throw new Error(`Failed to load flowchart: ${response.statusText}`);
+          console.error(`Server returned ${response.status}: ${response.statusText}`);
+          generateFlowchartFromSteps();
         }
       } catch (err) {
         console.error('Error loading flowchart:', err);
@@ -98,7 +123,21 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
     loadFlowchart();
   }, [jobId]);
 
-  // Generate initial flowchart from steps
+  useEffect(() => {
+    const handleNodeEditStart = (event: CustomEvent) => {
+      const { id, label, text } = event.detail;
+      setEditingNodeId(id);
+      setEditingNodeLabel(label || '');
+      setEditingNodeText(text || '');
+    };
+    
+    window.addEventListener('nodeeditstart', handleNodeEditStart as EventListener);
+    
+    return () => {
+      window.removeEventListener('nodeeditstart', handleNodeEditStart as EventListener);
+    };
+  }, []);
+
   const generateFlowchartFromSteps = () => {
     if (steps.length === 0) {
       setNodes([
@@ -106,58 +145,60 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
           id: 'start',
           type: 'input',
           data: { label: 'Start' },
-          position: { x: 350, y: 0 },
+          position: { x: NODE_CENTER_X, y: 0 },
           style: {
             background: '#f0ecfe',
             border: '1px solid #b8a6fe',
             borderRadius: '50px',
             width: 100,
-            textAlign: 'center'
+            textAlign: 'center',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center'
           },
         },
         {
           id: 'end',
           type: 'output',
           data: { label: 'End' },
-          position: { x: 350, y: 250 },
+          position: { x: NODE_CENTER_X, y: NODE_VERTICAL_SPACING },
           style: {
             background: '#f0ecfe',
             border: '1px solid #b8a6fe',
             borderRadius: '50px',
             width: 100,
-            textAlign: 'center'
+            textAlign: 'center',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center'
           },
         },
       ]);
       
-      setEdges([
-        { id: 'start-end', source: 'start', target: 'end', markerEnd: { type: MarkerType.ArrowClosed } },
-      ]);
+      setEdges([createStandardEdge('start', 'end')]);
       return;
     }
 
     const newNodes: Node[] = [];
     const newEdges: Edge[] = [];
     
-    // Center position for all nodes
-    const centerX = 350;
-    
-    // Add start node
     newNodes.push({
       id: 'start',
       type: 'input',
       data: { label: 'Start' },
-      position: { x: centerX, y: 0 },
+      position: { x: NODE_CENTER_X, y: 0 },
       style: {
         background: '#f0ecfe',
         border: '1px solid #b8a6fe',
         borderRadius: '50px',
         width: 100,
-        textAlign: 'center'
+        textAlign: 'center',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center'
       },
     });
     
-    // Add step nodes
     steps.forEach((step, index) => {
       newNodes.push({
         id: step.id,
@@ -168,99 +209,68 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
           text: step.text,
           order: step.order
         },
-        position: { x: centerX, y: (index + 1) * 100 },
-        draggable: true, // Always make nodes draggable
+        position: { x: NODE_CENTER_X, y: (index + 1) * NODE_VERTICAL_SPACING },
+        draggable: true,
       });
       
-      // Connect to previous node
       if (index === 0) {
-        newEdges.push({
-          id: `start-${step.id}`,
-          source: 'start',
-          target: step.id,
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
-          type: 'straight',
-          markerEnd: { type: MarkerType.ArrowClosed },
-        });
+        newEdges.push(createStandardEdge('start', step.id));
       } else {
-        newEdges.push({
-          id: `${steps[index - 1].id}-${step.id}`,
-          source: steps[index - 1].id,
-          target: step.id,
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
-          type: 'straight',
-          markerEnd: { type: MarkerType.ArrowClosed },
-        });
+        newEdges.push(createStandardEdge(steps[index - 1].id, step.id));
       }
     });
     
-    // Add end node
     newNodes.push({
       id: 'end',
       type: 'output',
       data: { label: 'End' },
-      position: { x: centerX, y: (steps.length + 1) * 100 },
+      position: { x: NODE_CENTER_X, y: (steps.length + 1) * NODE_VERTICAL_SPACING },
       style: {
         background: '#f0ecfe',
         border: '1px solid #b8a6fe',
         borderRadius: '50px',
         width: 100,
-        textAlign: 'center'
+        textAlign: 'center',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center'
       },
     });
     
-    // Connect last step to end
     if (steps.length > 0) {
-      newEdges.push({
-        id: `${steps[steps.length - 1].id}-end`,
-        source: steps[steps.length - 1].id,
-        target: 'end',
-        markerEnd: { type: MarkerType.ArrowClosed },
-      });
+      newEdges.push(createStandardEdge(steps[steps.length - 1].id, 'end'));
     }
     
     setNodes(newNodes);
     setEdges(newEdges);
   };
 
-  // Handle connecting nodes
+  // Updated onConnect function to preserve user-selected handles
   const onConnect = useCallback((params: Connection) => {
-    // Create a unique ID for the new edge
-    const edgeId = `${params.source}-${params.sourceHandle || ''}-${params.target}-${params.targetHandle || ''}`;
-    
-    setEdges((eds) => addEdge({ 
-      ...params, 
-      id: edgeId,
-      markerEnd: { type: MarkerType.ArrowClosed } 
-    }, eds));
+    const newEdge = createStandardEdge(
+      params.source!,
+      params.target!,
+      params.sourceHandle,
+      params.targetHandle
+    );
+    setEdges((eds) => addEdge(newEdge, eds));
   }, [setEdges]);
 
-  // Add a new node (step)
   const addNode = () => {
     if (!editMode) return;
-    
     const newStepText = "New step";
     onAddStep(newStepText);
-    
-    // The step will be added to the steps array and the flow will be regenerated
-    // when the steps prop updates
   };
 
-  // Save the flowchart
   const handleSave = async () => {
     try {
       setIsSaving(true);
       setError(null);
       
-      // Update step order based on node positions
-      // Sort nodes by y-position (top to bottom, excluding start/end)
       const stepNodes = nodes.filter(node => 
         node.id !== 'start' && node.id !== 'end'
       ).sort((a, b) => a.position.y - b.position.y);
       
-      // Update steps with new order
       const updatedSteps = steps.map(step => {
         const nodeIndex = stepNodes.findIndex(node => node.id === step.id);
         return {
@@ -269,41 +279,21 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
         };
       });
       
-      // Update steps in parent component
       onUpdateSteps(updatedSteps);
       
-      // Prepare nodes for saving (remove circular references and internal data)
-      const sanitizedNodes = nodes.map(node => ({
-        id: node.id,
-        type: node.type,
-        position: node.position,
-        data: {
-          label: node.data.label,
-          stepId: node.data.stepId,
-          text: node.data.text,
-          order: node.data.order
-        },
-        draggable: node.draggable,
-        style: node.style ? JSON.stringify(node.style) : null
-      }));
+      const flowchartData = {
+        nodes: nodes,
+        edges: edges
+      };
       
-      // Prepare edges for saving
-      const sanitizedEdges = edges.map(edge => ({
-        id: edge.id,
-        source: edge.source,
-        target: edge.target,
-        markerEnd: edge.markerEnd ? { type: edge.markerEnd.type } : null
-      }));
-      
-      // Save flowchart to backend
       const response = await fetch(`${config.apiUrl}/api/docs/${jobId}/flowchart`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          nodes: sanitizedNodes,
-          edges: sanitizedEdges
+          content: JSON.stringify(flowchartData),
+          mappings: {}
         }),
       });
       
@@ -320,15 +310,12 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
     }
   };
 
-  // Handle node changes better
   const handleNodesChange = useCallback((changes) => {
     if (!editMode) return;
     
     setNodes((nds) => {
-      // Apply all changes
       const updatedNodes = changes.reduce((acc, change) => {
         if (change.type === 'position' && change.dragging && change.id) {
-          // Handle position changes during dragging
           return acc.map(node => 
             node.id === change.id 
               ? { ...node, position: { x: change.position.x, y: change.position.y } }
@@ -337,19 +324,24 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
         }
         return acc;
       }, nds);
-      
       return updatedNodes;
     });
   }, [editMode, setNodes]);
-  
-  // Listen for node data changes from CustomNode
+
+  const onEdgeDoubleClick = (event: React.MouseEvent, edge: Edge) => {
+    if (!editMode) return;
+    
+    if (window.confirm('Remove this connection?')) {
+      setEdges((eds) => eds.filter(e => e.id !== edge.id));
+    }
+  };
+
   useEffect(() => {
     const handleNodeDataChange = (event: CustomEvent) => {
       if (!editMode) return;
       
       const { id, label, text } = event.detail;
       
-      // Update the node data
       setNodes((nds) => 
         nds.map((node) => {
           if (node.id === id) {
@@ -366,7 +358,6 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
         })
       );
       
-      // Find the corresponding step and update its title and text
       const stepIndex = steps.findIndex(step => step.id === id);
       if (stepIndex !== -1) {
         const updatedSteps = [...steps];
@@ -384,38 +375,29 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
       
       const { id } = event.detail;
       
-      // Don't allow deleting Start or End nodes
       if (id === 'start' || id === 'end') {
         alert('Cannot delete Start or End nodes');
         return;
       }
       
-      // Remove the node from the nodes state
+      const incomingEdges = edges.filter(edge => edge.target === id);
+      const outgoingEdges = edges.filter(edge => edge.source === id);
+      
       setNodes((nds) => nds.filter((node) => node.id !== id));
       
-      // Remove associated edges
       setEdges((eds) => eds.filter(
         (edge) => edge.source !== id && edge.target !== id
       ));
       
-      // Find and create a new direct connection for deleted node
-      const incomingEdges = edges.filter(edge => edge.target === id);
-      const outgoingEdges = edges.filter(edge => edge.source === id);
-      
-      incomingEdges.forEach(inEdge => {
-        outgoingEdges.forEach(outEdge => {
-          // Create a new edge that connects the source of incoming edge to target of outgoing edge
-          const newEdge = {
-            id: `${inEdge.source}-${outEdge.target}`,
-            source: inEdge.source,
-            target: outEdge.target,
-            markerEnd: { type: MarkerType.ArrowClosed }
-          };
-          setEdges(eds => [...eds, newEdge]);
+      if (incomingEdges.length > 0 && outgoingEdges.length > 0) {
+        incomingEdges.forEach(inEdge => {
+          outgoingEdges.forEach(outEdge => {
+            const newEdge = createStandardEdge(inEdge.source, outEdge.target);
+            setEdges(eds => [...eds, newEdge]);
+          });
         });
-      });
+      }
       
-      // Find the corresponding step and remove it
       const stepIndex = steps.findIndex(step => step.id === id);
       if (stepIndex !== -1) {
         const updatedSteps = steps.filter(step => step.id !== id);
@@ -431,6 +413,37 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
       window.removeEventListener('nodedelete', handleNodeDelete as EventListener);
     };
   }, [editMode, nodes, edges, steps, setNodes, setEdges, onUpdateSteps]);
+
+  const handleSaveNodeEdit = (nodeId: string, label: string, text: string) => {
+    setNodes((nds) => 
+      nds.map((node) => {
+        if (node.id === nodeId) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              label,
+              text
+            },
+          };
+        }
+        return node;
+      })
+    );
+    
+    const stepIndex = steps.findIndex(step => step.id === nodeId);
+    if (stepIndex !== -1) {
+      const updatedSteps = [...steps];
+      updatedSteps[stepIndex] = {
+        ...updatedSteps[stepIndex],
+        title: label,
+        text: text
+      };
+      onUpdateSteps(updatedSteps);
+    }
+    
+    setEditingNodeId(null);
+  };
 
   return (
     <div className="mt-6">
@@ -474,6 +487,20 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
           </div>
         </div>
         
+        {error && (
+          <div className="mb-4 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded-md">
+            <div className="flex items-center">
+              <AlertCircle className="w-5 h-5 text-yellow-500 mr-2 flex-shrink-0" />
+              <p className="text-yellow-700">
+                {error}
+                <span className="block text-sm text-yellow-600 mt-1">
+                  Using automatically generated flowchart instead.
+                </span>
+              </p>
+            </div>
+          </div>
+        )}
+        
         {isLoading ? (
           <div className="flex justify-center py-10">
             <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-primary"></div>
@@ -493,6 +520,7 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
                 onConnect={editMode ? onConnect : undefined}
                 onInit={setReactFlowInstance}
                 nodeTypes={nodeTypes}
+                onEdgeDoubleClick={editMode ? onEdgeDoubleClick : undefined}
                 fitView
                 proOptions={{ hideAttribution: true }}
                 defaultEdgeOptions={{
@@ -504,19 +532,35 @@ const FlowchartTab: React.FC<FlowchartTabProps> = ({
               >
                 <Controls />
                 <Background color="#aaa" gap={16} />
+                {editMode && (
+                  <div 
+                    style={{ 
+                      position: 'absolute', 
+                      bottom: 10, 
+                      left: 10, 
+                      padding: '6px 12px', 
+                      background: 'rgba(0,0,0,0.6)', 
+                      color: 'white', 
+                      borderRadius: '4px',
+                      fontSize: '12px'
+                    }}
+                  >
+                    Double-click on a connection to remove it
+                  </div>
+                )}
               </ReactFlow>
             </div>
           </ReactFlowProvider>
         )}
         
-        {error && (
-          <div className="mt-4 bg-red-50 border-l-4 border-red-500 p-4 rounded-md">
-            <div className="flex items-center">
-              <Trash2 className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" />
-              <p className="text-red-700">{error}</p>
-            </div>
-          </div>
-        )}
+        <EditNodeModal
+          isOpen={editingNodeId !== null}
+          nodeId={editingNodeId}
+          initialLabel={editingNodeLabel}
+          initialText={editingNodeText}
+          onSave={handleSaveNodeEdit}
+          onCancel={() => setEditingNodeId(null)}
+        />
       </div>
     </div>
   );
