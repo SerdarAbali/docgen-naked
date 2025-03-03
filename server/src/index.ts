@@ -1,4 +1,3 @@
-// DONT FUCKING REMOVE THIS COMMENT this file location is /docgen/server/src/index.ts
 import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -390,7 +389,7 @@ async function completeProcessing(jobId: string) {
     const { file_path: filePath } = jobResult.rows[0];
     
     const segmentResult = await pool.query(
-      'SELECT * FROM transcription_segments WHERE job_id = $1 ORDER BY segment_index',
+      'SELECT * FROM transcription_segments WHERE job_id = $1 ORDER BY COALESCE("order", segment_index)',
       [jobId]
     );
     
@@ -985,19 +984,40 @@ function formatTime(seconds: number): string {
 app.put('/api/docs/:jobId', async (req, res) => {
   try {
     const { jobId } = req.params;
-    const { content, categoryId } = req.body;
+    const { content, categoryId, title } = req.body;
     
     if (!content) {
       res.status(400).json({ error: 'Content is required' });
       return;
     }
 
+    // Update the title in the document content before writing to file
+    let updatedContent = content;
+    if (title !== undefined) {
+      // Update title in frontmatter
+      const titleRegex = /title:\s*([^\n]+)/;
+      if (titleRegex.test(updatedContent)) {
+        updatedContent = updatedContent.replace(titleRegex, `title: ${title}`);
+      }
+      
+      // Update title in h1
+      const h1Regex = /# ([^\n]+)/;
+      if (h1Regex.test(updatedContent)) {
+        updatedContent = updatedContent.replace(h1Regex, `# ${title}`);
+      }
+    }
+
     const docPath = path.join(DOCS_DIR, 'generated', jobId, 'index.md');
-    await fs.writeFile(docPath, content, 'utf8');
+    await fs.writeFile(docPath, updatedContent, 'utf8');
 
     let query = `UPDATE documentation 
                  SET updated_at = CURRENT_TIMESTAMP`;
     const queryParams = [];
+    
+    if (title !== undefined) {
+      query += `, title = $${queryParams.length + 1}`;
+      queryParams.push(title);
+    }
     
     if (categoryId !== undefined) {
       query += `, category_id = $${queryParams.length + 1}`;
@@ -1360,7 +1380,7 @@ app.put('/api/docs/:docId/steps/:stepId', async (req, res) => {
   }
 });
 
-// Get flowchart for a document
+// Get flowchart for a document - Updated version with column checking
 app.get('/api/docs/:jobId/flowchart', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -1377,11 +1397,31 @@ app.get('/api/docs/:jobId/flowchart', async (req, res) => {
     
     const documentId = docResult.rows[0].id;
     
-    // Try to get the flowchart
-    const flowchartResult = await pool.query(
-      'SELECT id, content, mappings FROM document_flowcharts WHERE job_id = $1',
-      [jobId]
-    );
+    // Check if the table has the expected structure with a metadata query
+    const tableInfoQuery = await pool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'document_flowcharts'
+    `);
+    
+    const columns = tableInfoQuery.rows.map(row => row.column_name);
+    
+    // Construct a dynamic query based on available columns
+    let queryText = 'SELECT id';
+    const queryParams = [jobId];
+    
+    if (columns.includes('content')) {
+      queryText += ', content';
+    }
+    
+    if (columns.includes('mappings')) {
+      queryText += ', mappings';
+    }
+    
+    queryText += ' FROM document_flowcharts WHERE job_id = $1';
+    
+    // Try to get the flowchart with the dynamically built query
+    const flowchartResult = await pool.query(queryText, queryParams);
     
     if (flowchartResult.rows.length === 0) {
       return res.status(404).json({ error: 'Flowchart not found' });
@@ -1394,7 +1434,7 @@ app.get('/api/docs/:jobId/flowchart', async (req, res) => {
   }
 });
 
-// Create or update flowchart
+// Create or update flowchart - Updated version with column checking
 app.post('/api/docs/:jobId/flowchart', async (req, res) => {
   try {
     const { jobId } = req.params;
@@ -1416,6 +1456,17 @@ app.post('/api/docs/:jobId/flowchart', async (req, res) => {
     
     const documentId = docResult.rows[0].id;
     
+    // Check if the table has the expected structure
+    const tableInfoQuery = await pool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'document_flowcharts'
+    `);
+    
+    const columns = tableInfoQuery.rows.map(row => row.column_name);
+    const hasContentColumn = columns.includes('content');
+    const hasMappingsColumn = columns.includes('mappings');
+    
     // Check if a flowchart already exists for this document
     const existingFlowchart = await pool.query(
       'SELECT id FROM document_flowcharts WHERE job_id = $1',
@@ -1426,27 +1477,62 @@ app.post('/api/docs/:jobId/flowchart', async (req, res) => {
       // Update existing flowchart
       const flowchartId = existingFlowchart.rows[0].id;
       
-      const result = await pool.query(
-        `UPDATE document_flowcharts 
-         SET content = $1, mappings = $2, updated_at = CURRENT_TIMESTAMP 
-         WHERE id = $3 
-         RETURNING id, content, mappings`,
-        [content, mappings || {}, flowchartId]
-      );
+      // Build dynamic query based on available columns
+      let updateQueryText = 'UPDATE document_flowcharts SET updated_at = CURRENT_TIMESTAMP';
+      const updateParams = [];
+      let paramIndex = 1;
       
-      res.json(result.rows[0]);
+      if (hasContentColumn) {
+        updateQueryText += `, content = $${paramIndex}`;
+        updateParams.push(content);
+        paramIndex++;
+      }
+      
+      if (hasMappingsColumn && mappings) {
+        updateQueryText += `, mappings = $${paramIndex}`;
+        updateParams.push(mappings);
+        paramIndex++;
+      }
+      
+      updateQueryText += ` WHERE id = $${paramIndex} RETURNING id`;
+      updateParams.push(flowchartId);
+      
+      const result = await pool.query(updateQueryText, updateParams);
+      
+      res.json({ id: result.rows[0].id });
     } else {
-      // Create new flowchart
+      // Create new flowchart - this needs to adapt to available columns too
       const flowchartId = uuidv4();
       
-      const result = await pool.query(
-        `INSERT INTO document_flowcharts (id, document_id, job_id, content, mappings) 
-         VALUES ($1, $2, $3, $4, $5) 
-         RETURNING id, content, mappings`,
-        [flowchartId, documentId, jobId, content, mappings || {}]
-      );
+      // Build dynamic query for insert
+      let insertColumns = ['id', 'document_id', 'job_id'];
+      let insertValues = ['$1', '$2', '$3'];
+      const insertParams = [flowchartId, documentId, jobId];
+      let paramIndex = 4;
       
-      res.status(201).json(result.rows[0]);
+      if (hasContentColumn) {
+        insertColumns.push('content');
+        insertValues.push(`$${paramIndex}`);
+        insertParams.push(content);
+        paramIndex++;
+      }
+      
+      if (hasMappingsColumn && mappings) {
+        insertColumns.push('mappings');
+        insertValues.push(`$${paramIndex}`);
+        insertParams.push(mappings);
+        paramIndex++;
+      }
+      
+      const insertQueryText = `
+        INSERT INTO document_flowcharts (${insertColumns.join(', ')}) 
+        VALUES (${insertValues.join(', ')}) 
+        RETURNING id
+      `;
+      
+      const result = await pool.query(insertQueryText, insertParams);
+      
+      res.status(201).json({ id: result.rows[0].id });
     }
   } catch (error) {
     console.error('Error saving flowchart:', error);
